@@ -1,16 +1,8 @@
 # -*- coding: utf-8 -*-
-"""
-Sentinela Verde - Sistema Avançado de Monitoramento e Predição da Qualidade do Ar
-Versão Otimizada com melhorias em robustez, configurabilidade e performance
-
-Desenvolvido para análise de dados de sensores IoT com classificação em tempo real
-e predição futura usando redes neurais LSTM
-"""
 
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-import json
 import yaml
 import logging
 import warnings
@@ -18,16 +10,23 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Union
 import sys
 
+# Imports for Decision Tree and Gas Forecasting
+from sklearn.tree import DecisionTreeClassifier, plot_tree
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+import matplotlib.pyplot as plt
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
-Sequential=None
 
 # Configurar warnings e logging
 warnings.filterwarnings('ignore', category=FutureWarning)
+warnings.filterwarnings('ignore', category=UserWarning) # To ignore some statsmodels warnings
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('sentinela_verde.log'),
+        logging.FileHandler('sentinela_verde.log', mode='w'), # Overwrite log file each run
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -38,12 +37,12 @@ class ConfigManager:
     
     DEFAULT_CONFIG = {
         'files': {
-            'input_csv': 'meus_dados_arduino.csv',
-            'output_classified_csv': 'dados_arduino_classificados.csv',
-            'output_prediction_json': 'sentinela_dashboard_data_multialvo.json',
+            'input_csv': 'meus_dados_arduino.csv', # Example input file
+            'output_classified_csv': 'dados_arduino_classificados_regras.csv', # Output from rule-based classifier
             'config_file': 'config.yaml'
         },
         'columns': {
+            'timestamp': 'Timestamp', # Ensure your CSV has a timestamp column with this name or configure it
             'sensors': [
                 'Amonia_ppm',
                 'Benzeno_ppm', 
@@ -52,15 +51,14 @@ class ConfigManager:
                 'Temperatura_C',
                 'Umidade_Relativa_percent'
             ],
-            'timestamp': 'Timestamp'
         },
-        'air_quality_limits': {
-            'Amonia_ppm': 0.1,
-            'Benzeno_ppm': 0.002,
-            'Alcool_ppm': 0.5,
-            'Dioxido_Carbono_ppm': 1000
+        'air_quality_limits': { 
+            'Amonia_ppm': 1.0,        
+            'Benzeno_ppm': 0.05,      
+            'Alcool_ppm': 2.0,    
+            'Dioxido_Carbono_ppm': 2000  
         },
-        'sensor_ranges': {
+        'sensor_ranges': { # Physical limits of sensors for validation
             'Amonia_ppm': {'min': 0, 'max': 50},
             'Benzeno_ppm': {'min': 0, 'max': 10},
             'Alcool_ppm': {'min': 0, 'max': 100},
@@ -68,18 +66,32 @@ class ConfigManager:
             'Temperatura_C': {'min': -40, 'max': 85},
             'Umidade_Relativa_percent': {'min': 0, 'max': 100}
         },
-        'lstm': {
+        'decision_tree': {
             'enabled': True,
-            'look_back': 48,
-            'prediction_horizon': 24,
-            'target_columns': ['Amonia_ppm', 'Benzeno_ppm', 'Alcool_ppm', 'Dioxido_Carbono_ppm'],
-            'train_split': 0.8,
-            'validation_split': 0.15,
-            'epochs': 70,
-            'batch_size': 32,
-            'patience': 12,
-            'min_data_points': 100
-        }
+            'min_data_points_tree': 30, # Minimum samples to attempt training
+            'test_size': 0.25,
+            'random_state': 42,
+            'criterion': 'gini', # 'gini' or 'entropy'
+            'max_depth': 10, # Limit depth to prevent overfitting and for better visualization
+            'min_samples_split': 5,
+            'min_samples_leaf': 3,
+            'plot_figsize': [25, 15], # Adjusted for potentially larger trees
+            'plot_fontsize': 8,
+            'plot_path': 'decision_tree_air_quality.png',
+            'feature_columns': [ # Features for the decision tree
+                'Amonia_ppm', 'Benzeno_ppm', 'Alcool_ppm', 'Dioxido_Carbono_ppm',
+                'Temperatura_C', 'Umidade_Relativa_percent'
+            ],
+            'target_column': 'Qualidade_Ar_Calculada' # From AirQualityClassifier
+        },
+        'gas_forecasting': {
+            'enabled': True,
+            'prediction_horizon_hours': 24,
+            'target_gas_columns': [ # Gases to forecast
+                'Amonia_ppm', 'Benzeno_ppm', 'Alcool_ppm', 'Dioxido_Carbono_ppm'
+            ],
+            'min_data_for_train': 50 # Minimum data points for training ETS models
+        },
     }
     
     def __init__(self, config_path: str = None):
@@ -87,50 +99,44 @@ class ConfigManager:
         self.config = self.load_config()
     
     def load_config(self) -> Dict:
-        """Carrega configuração do arquivo YAML ou usa padrão"""
         config_file = Path(self.config_path)
-        
         if config_file.exists():
             try:
                 with open(config_file, 'r', encoding='utf-8') as f:
                     loaded_config = yaml.safe_load(f)
                 logger.info(f"Configuração carregada de {self.config_path}")
-                return self._merge_configs(self.DEFAULT_CONFIG, loaded_config)
+                # Deep merge user config with default config
+                return self._merge_configs(self.DEFAULT_CONFIG.copy(), loaded_config)
             except Exception as e:
-                logger.warning(f"Erro ao carregar configuração: {e}. Usando configuração padrão.")
+                logger.warning(f"Erro ao carregar configuração de {self.config_path}: {e}. Usando configuração padrão.")
         else:
-            logger.info("Arquivo de configuração não encontrado. Criando configuração padrão.")
+            logger.info(f"Arquivo de configuração '{self.config_path}' não encontrado. Criando e usando configuração padrão.")
             self.save_default_config()
-        
         return self.DEFAULT_CONFIG.copy()
-    
+
+    def _merge_configs(self, default: Dict, loaded: Dict) -> Dict:
+        """Recursively merges loaded configuration into default configuration."""
+        for key, value in loaded.items():
+            if isinstance(value, dict) and key in default and isinstance(default[key], dict):
+                default[key] = self._merge_configs(default[key], value)
+            else:
+                default[key] = value
+        return default
+
     def save_default_config(self):
-        """Salva configuração padrão em arquivo YAML"""
         try:
             with open(self.config_path, 'w', encoding='utf-8') as f:
-                yaml.dump(self.DEFAULT_CONFIG, f, default_flow_style=False, allow_unicode=True)
+                yaml.dump(self.DEFAULT_CONFIG, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
             logger.info(f"Configuração padrão salva em {self.config_path}")
         except Exception as e:
             logger.error(f"Erro ao salvar configuração padrão: {e}")
-    
-    def _merge_configs(self, default: Dict, loaded: Dict) -> Dict:
-        """Mescla configuração carregada com padrão"""
-        merged = default.copy()
-        for key, value in loaded.items():
-            if isinstance(value, dict) and key in merged:
-                merged[key].update(value)
-            else:
-                merged[key] = value
-        return merged
 
 class DataValidator:
     """Validador de dados dos sensores"""
-    
     def __init__(self, sensor_ranges: Dict[str, Dict[str, float]]):
         self.sensor_ranges = sensor_ranges
     
     def validate_sensor_data(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, int]]:
-        """Valida dados dos sensores e remove outliers"""
         validation_stats = {}
         df_clean = df.copy()
         
@@ -139,565 +145,649 @@ class DataValidator:
                 initial_count = len(df_clean)
                 sensor_range = self.sensor_ranges[column]
                 
-                # Remove valores fora do range físico
-                mask = (df_clean[column] >= sensor_range['min']) & (df_clean[column] <= sensor_range['max'])
-                df_clean = df_clean[mask]
+                # Convert to numeric, coercing errors. This helps if data is read as object.
+                df_clean[column] = pd.to_numeric(df_clean[column], errors='coerce')
                 
-                # Estatísticas de validação
-                removed_count = initial_count - len(df_clean)
+                mask = (df_clean[column] >= sensor_range['min']) & (df_clean[column] <= sensor_range['max'])
+                # Keep NaNs introduced by coerce for now, handle them later or let them be excluded by mask
+                df_clean = df_clean[mask | df_clean[column].isnull()] 
+                
+                removed_count = initial_count - len(df_clean[mask]) # Count only valid removals
                 validation_stats[column] = removed_count
                 
                 if removed_count > 0:
-                    logger.warning(f"Removidos {removed_count} valores inválidos da coluna {column}")
+                    logger.warning(f"Removidos {removed_count} valores fora do range físico da coluna {column}")
         
+        # Optionally, handle NaNs more explicitly here, e.g., by imputation or removal
+        # For now, let them propagate; subsequent steps might handle them.
         return df_clean, validation_stats
     
     def detect_anomalies(self, df: pd.DataFrame, columns: List[str]) -> pd.DataFrame:
-        """Detecta anomalias usando método IQR"""
         df_clean = df.copy()
-        
         for column in columns:
             if column in df_clean.columns and pd.api.types.is_numeric_dtype(df_clean[column]):
                 Q1 = df_clean[column].quantile(0.25)
                 Q3 = df_clean[column].quantile(0.75)
                 IQR = Q3 - Q1
-                
+                if IQR == 0: # Avoid division by zero or issues with constant data
+                    continue 
                 lower_bound = Q1 - 1.5 * IQR
                 upper_bound = Q3 + 1.5 * IQR
-                
                 outliers_mask = (df_clean[column] < lower_bound) | (df_clean[column] > upper_bound)
                 outliers_count = outliers_mask.sum()
-                
                 if outliers_count > 0:
-                    logger.info(f"Detectados {outliers_count} outliers em {column}")
-                    # Marcar outliers mas não remover (apenas log)
-                    df_clean[f'{column}_outlier'] = outliers_mask
-        
+                    logger.info(f"Detectados {outliers_count} outliers (IQR) em {column}. Eles não são removidos por esta função.")
+                    df_clean[f'{column}_is_outlier_IQR'] = outliers_mask # Mark outliers
         return df_clean
 
 class AirQualityClassifier:
-    """Classificador de qualidade do ar"""
-    
+    """Classificador de qualidade do ar (baseado em regras/índices)"""
+
     def __init__(self, limits: Dict[str, float]):
         self.limits = limits
-        self.categories = {
-            (0, 0.5): "Bom",
-            (0.5, 1.0): "Regular", 
-            (1.0, 1.5): "Ruim",
-            (1.5, float('inf')): "Crítico"
-        }
+        self.categories = { 
+            (0, 0.3): "Excelente",      
+            (0.3, 0.6): "Bom",          
+            (0.6, 1.0): "Regular",      
+            (1.0, 1.5): "Ruim",         
+            (1.5, 2.0): "Muito Ruim",   
+            (2.0, float('inf')): "Crítico"  
+    }
     
     def calculate_air_quality(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calcula índice e categoria de qualidade do ar"""
         df_result = df.copy()
         pollutants = [col for col in self.limits.keys() if col in df_result.columns]
         
         if not pollutants:
-            logger.error("Nenhum poluente encontrado para classificação")
+            logger.error("Nenhum poluente configurado com limites encontrado nos dados para classificação baseada em regras.")
             return df_result
         
-        logger.info(f"Calculando qualidade do ar para: {pollutants}")
+        logger.info(f"Calculando qualidade do ar (regras) para: {pollutants}")
         
-        # Calcular sub-índices
         sub_indices = pd.DataFrame(index=df_result.index)
         for pollutant in pollutants:
             df_result[pollutant] = pd.to_numeric(df_result[pollutant], errors='coerce')
-            sub_indices[f'SubIndice_{pollutant}'] = df_result[pollutant] / self.limits[pollutant]
+            # Ensure limit is not zero to avoid division by zero
+            limit_value = self.limits.get(pollutant, 1.0)
+            if limit_value == 0:
+                logger.warning(f"Limite para {pollutant} é 0. Usando 1.0 para evitar divisão por zero no sub-índice.")
+                limit_value = 1.0
+            sub_indices[f'SubIndice_{pollutant}'] = df_result[pollutant] / limit_value
         
-        # Índice máximo (pior caso)
         df_result['Max_SubIndice'] = sub_indices.max(axis=1)
-        
-        # Categorização
         df_result['Qualidade_Ar_Calculada'] = df_result['Max_SubIndice'].apply(self._categorize)
         df_result['Risco_Saude'] = df_result['Max_SubIndice'].apply(self._assess_health_risk)
         
-        # Estatísticas
         self._log_quality_stats(df_result)
-        
         return df_result
     
     def _categorize(self, max_sub_index: float) -> str:
-        """Categoriza qualidade do ar baseado no sub-índice máximo"""
-        if pd.isna(max_sub_index):
-            return "Indeterminado"
-        
+        if pd.isna(max_sub_index): return "Indeterminado"
         for (min_val, max_val), category in self.categories.items():
-            if min_val <= max_sub_index < max_val:
-                return category
-        
-        return "Crítico"
+            if min_val <= max_sub_index < max_val: return category
+        return "Crítico" # Default for values >= last max_val
     
     def _assess_health_risk(self, max_sub_index: float) -> str:
-        """Avalia risco à saúde"""
-        if pd.isna(max_sub_index):
-            return "Indeterminado"
-        elif max_sub_index <= 0.5:
-            return "Baixo"
-        elif max_sub_index <= 1.0:
-            return "Moderado"
-        elif max_sub_index <= 1.5:
-            return "Alto"
-        else:
-            return "Muito Alto"
+        if pd.isna(max_sub_index): return "Indeterminado"
+        if max_sub_index <= 0.5: return "Baixo"
+        if max_sub_index <= 1.0: return "Moderado"
+        if max_sub_index <= 1.5: return "Alto"
+        return "Muito Alto"
     
     def _log_quality_stats(self, df: pd.DataFrame):
-        """Log estatísticas de qualidade do ar"""
         if 'Qualidade_Ar_Calculada' in df.columns:
-            stats = df['Qualidade_Ar_Calculada'].value_counts()
-            logger.info("Distribuição da Qualidade do Ar:")
-            for category, count in stats.items():
-                percentage = (count / len(df)) * 100
-                logger.info(f"  {category}: {count} ({percentage:.1f}%)")
+            stats = df['Qualidade_Ar_Calculada'].value_counts(normalize=True) * 100
+            logger.info("Distribuição da Qualidade do Ar (Regras):")
+            for category, percentage in stats.items():
+                logger.info(f"  {category}: {percentage:.1f}%")
 
-class LSTMPredictor:
-    """Preditor LSTM para múltiplos alvos"""
-    
+    def diagnose_classification(self, df: pd.DataFrame):
+        """Método para diagnosticar problemas na classificação"""
+        pollutants = [col for col in self.limits.keys() if col in df.columns]
+        
+        print("\n🔍 DIAGNÓSTICO DA CLASSIFICAÇÃO:")
+        print("="*50)
+        
+        for pollutant in pollutants:
+            values = df[pollutant].dropna()
+            if len(values) == 0:
+                continue
+                
+            limit = self.limits[pollutant]
+            sub_indices = values / limit
+            
+            print(f"\n{pollutant}:")
+            print(f"  Limite configurado: {limit}")
+            print(f"  Valores - Min: {values.min():.4f}, Max: {values.max():.4f}, Média: {values.mean():.4f}")
+            print(f"  Sub-índices - Min: {sub_indices.min():.2f}, Max: {sub_indices.max():.2f}, Média: {sub_indices.mean():.2f}")
+            
+            # Contar quantos valores excedem cada threshold
+            print(f"  Acima do limite (>1.0): {(sub_indices > 1.0).sum()}/{len(sub_indices)} ({(sub_indices > 1.0).mean()*100:.1f}%)")
+            print(f"  Crítico (>2.0): {(sub_indices > 2.0).sum()}/{len(sub_indices)} ({(sub_indices > 2.0).mean()*100:.1f}%)")
+        
+        if 'Max_SubIndice' in df.columns:
+            max_sub = df['Max_SubIndice'].dropna()
+            print(f"\nMAX SUB-ÍNDICE GERAL:")
+            print(f"  Min: {max_sub.min():.2f}, Max: {max_sub.max():.2f}, Média: {max_sub.mean():.2f}")
+            
+        print("="*50)
+
+class SimpleGasForecaster:
+    """Previsor Simplificado de Concentração de Gases"""
     def __init__(self, config: Dict):
         self.config = config
-        self.model = None
-        self.scaler = None
-        self.feature_columns = []
-        self.target_columns = config['target_columns']
-        self.is_trained = False
+        self.models = {} # Stores a trained model for each gas
+        self.target_gas_columns = config.get('target_gas_columns', [])
+        self.min_data_for_train = config.get('min_data_for_train', 50)
+        self.trained_on_index_freq = None
+
+    def train(self, df_historical_data: pd.DataFrame) -> bool:
+        logger.info("Treinando previsores simples de gases...")
+        if df_historical_data.empty:
+            logger.warning("Dados históricos vazios para treinar o previsor de gases.")
+            return False
         
-        # Verificar disponibilidade das bibliotecas
-        self.ml_available = self._check_ml_libraries()
-    
-    def _check_ml_libraries(self) -> bool:
-        """Verifica se bibliotecas de ML estão disponíveis"""
+        # Try to infer frequency if DataFrame index is DatetimeIndex
+        if isinstance(df_historical_data.index, pd.DatetimeIndex):
+            self.trained_on_index_freq = pd.infer_freq(df_historical_data.index)
+            if self.trained_on_index_freq:
+                 logger.info(f"Frequência de dados inferida para treino do previsor: {self.trained_on_index_freq}")
+            else:
+                 logger.warning("Não foi possível inferir a frequência dos dados para o treino do previsor. As previsões podem ser menos precisas.")
+        
+        for gas_col in self.target_gas_columns:
+            if gas_col in df_historical_data.columns:
+                series = df_historical_data[gas_col].dropna().astype(float)
+                if len(series) >= self.min_data_for_train:
+                    try:
+                        # Using Holt-Winters Exponential Smoothing
+                        # Parameters can be tuned or made configurable
+                        model = ExponentialSmoothing(series, trend='add', seasonal='add', 
+                                                     seasonal_periods=24 if self.trained_on_index_freq == 'H' or not self.trained_on_index_freq else None, # Adapt seasonal_periods based on freq
+                                                     initialization_method='estimated')
+                        self.models[gas_col] = model.fit()
+                        logger.info(f"Treinado modelo Exponential Smoothing para {gas_col}")
+                    except Exception as e:
+                        logger.warning(f"Não foi possível treinar Exponential Smoothing para {gas_col}: {e}. Usando persistência (último valor).")
+                        self.models[gas_col] = series.iloc[-1] if not series.empty else 0.0
+                else:
+                    logger.warning(f"Dados insuficientes ({len(series)} < {self.min_data_for_train}) para treinar modelo para {gas_col}. Usando persistência.")
+                    self.models[gas_col] = series.iloc[-1] if not series.empty else 0.0
+            else:
+                logger.warning(f"Coluna alvo de gás {gas_col} não encontrada nos dados para previsão.")
+        return bool(self.models)
+
+    def forecast(self, n_periods: int, last_timestamp: Optional[datetime] = None) -> Optional[pd.DataFrame]:
+        if not self.models:
+            logger.error("Nenhum modelo de previsão de gás treinado.")
+            return None
+
+        forecast_data = {}
+        
+        if last_timestamp is None: # If no last timestamp provided, start from now
+            last_timestamp = datetime.now()
+        
+        # Create future timestamps. Defaulting to Hourly if not inferable.
+        freq_to_use = self.trained_on_index_freq if self.trained_on_index_freq else 'H'
         try:
-            global MinMaxScaler, Sequential, LSTM, Dense, Dropout, EarlyStopping, plt
-            from sklearn.preprocessing import MinMaxScaler
-            from tensorflow.keras.models import Sequential
-            from tensorflow.keras.layers import LSTM, Dense, Dropout
-            from tensorflow.keras.callbacks import EarlyStopping
-            import matplotlib.pyplot as plt
+            future_index = pd.date_range(start=last_timestamp + pd.Timedelta(hours=1 if freq_to_use=='H' else 0), periods=n_periods, freq=freq_to_use) # Adjust Timedelta based on freq
+        except ValueError as e: # Handle cases where freq might be incompatible with simple addition
+            logger.warning(f"Erro ao criar future_index com frequência {freq_to_use}: {e}. Usando frequência horária padrão.")
+            future_index = pd.date_range(start=last_timestamp + timedelta(hours=1), periods=n_periods, freq='H')
+
+
+        for gas_col, model_or_val in self.models.items():
+            try:
+                if hasattr(model_or_val, 'forecast'): # Check if it's a statsmodels model
+                    forecast_values = model_or_val.forecast(n_periods)
+                    forecast_data[gas_col] = forecast_values.values
+                else: # It's a fallback (last value)
+                    logger.info(f"Usando previsão de persistência para {gas_col}")
+                    forecast_data[gas_col] = [model_or_val] * n_periods
+            except Exception as e:
+                logger.error(f"Erro ao prever {gas_col}: {e}. Usando 0 como fallback.")
+                forecast_data[gas_col] = [0.0] * n_periods
+        
+        if not forecast_data: return None
             
-            logger.info("Bibliotecas de Machine Learning disponíveis")
-            return True
-        except ImportError as e:
-            logger.warning(f"Bibliotecas ML não disponíveis: {e}")
+        df_forecast = pd.DataFrame(forecast_data, index=future_index)
+        # Ensure all configured target gas columns are present
+        for gas_col in self.target_gas_columns:
+            if gas_col not in df_forecast.columns:
+                df_forecast[gas_col] = [0.0] * n_periods
+                logger.warning(f"Nenhuma previsão gerada para {gas_col} (pode não ter sido treinada), usando 0.")
+        return df_forecast
+
+class DecisionTreePipeline:
+    """Pipeline para Árvore de Decisão"""
+    def __init__(self, config: Dict):
+        self.config = config 
+        self.model: Optional[DecisionTreeClassifier] = None
+        self.label_encoder = LabelEncoder()
+        self.feature_columns: List[str] = []
+        self.class_names: List[str] = []
+        self.is_trained = False
+
+    def train(self, df: pd.DataFrame, feature_columns: List[str], target_column: str) -> bool:
+        logger.info("Iniciando treinamento da Árvore de Decisão...")
+        self.feature_columns = feature_columns
+        
+        X = df[feature_columns].copy()
+        y_raw = df[target_column].copy()
+
+        # Handle NaNs in features and target before training
+        X.fillna(X.mean(), inplace=True) # Impute NaNs in features with mean, or choose another strategy
+        y_raw.fillna("Indeterminado", inplace=True) # Fill NaNs in target, or drop
+
+        y = self.label_encoder.fit_transform(y_raw)
+        self.class_names = list(self.label_encoder.classes_)
+
+        if len(X) < self.config.get('min_data_points_tree', 30):
+            logger.warning(f"Dados insuficientes para Árvore de Decisão: {len(X)} amostras. Necessário: {self.config.get('min_data_points_tree', 30)}")
             return False
-    
-    def prepare_data(self, df: pd.DataFrame, sensor_columns: List[str]) -> bool:
-        """Prepara dados para treinamento LSTM"""
-        if not self.ml_available:
-            return False
+
+        # Check class distribution before stratification
+        unique_classes, class_counts = np.unique(y, return_counts=True)
+        min_class_count = np.min(class_counts)
         
-        # Features válidas (numéricas)
-        self.feature_columns = [
-            col for col in sensor_columns 
-            if col in df.columns and pd.api.types.is_numeric_dtype(df[col])
-        ]
-        
-        # Verificar se targets estão nas features
-        missing_targets = [col for col in self.target_columns if col not in self.feature_columns]
-        if missing_targets:
-            logger.error(f"Colunas alvo não encontradas nas features: {missing_targets}")
-            return False
-        
-        # Preparar DataFrame
-        self.df_lstm = df[self.feature_columns].copy()
-        self.df_lstm.dropna(inplace=True)
-        
-        if len(self.df_lstm) < self.config['min_data_points']:
-            logger.warning(f"Dados insuficientes para LSTM: {len(self.df_lstm)} < {self.config['min_data_points']}")
-            return False
-        
-        logger.info(f"Dados preparados para LSTM: {len(self.df_lstm)} amostras, {len(self.feature_columns)} features")
-        return True
-    
-    def create_sequences(self) -> Tuple[np.ndarray, np.ndarray]:
-        """Cria sequências temporais para LSTM"""
-        scaler = MinMaxScaler(feature_range=(0, 1))
-        scaled_data = scaler.fit_transform(self.df_lstm)
-        self.scaler = scaler
-        
-        look_back = self.config['look_back']
-        horizon = self.config['prediction_horizon']
-        
-        X_sequences, y_sequences = [], []
-        target_indices = [self.df_lstm.columns.get_loc(col) for col in self.target_columns]
-        
-        for i in range(len(scaled_data) - look_back - horizon + 1):
-            X_sequences.append(scaled_data[i:(i + look_back), :])
-            y_slice = scaled_data[(i + look_back):(i + look_back + horizon), :]
-            y_sequences.append(y_slice[:, target_indices])
-        
-        return np.array(X_sequences), np.array(y_sequences)
-    
-    def build_model(self, input_shape: Tuple[int, int]) -> Sequential:
-        """Constrói modelo LSTM otimizado"""
-        model = Sequential([
-            LSTM(units=80, return_sequences=True, input_shape=input_shape, activation='tanh'),
-            Dropout(0.3),
-            LSTM(units=60, return_sequences=True, activation='tanh'),
-            Dropout(0.3),
-            LSTM(units=40, return_sequences=False, activation='tanh'),
-            Dropout(0.2),
-            Dense(units=len(self.target_columns) * self.config['prediction_horizon']),
-            # Reshape para (horizon, n_targets)
-        ])
-        
-        model.compile(
-            optimizer='adam',
-            loss='huber',  # Mais robusto a outliers que MSE
-            metrics=['mae']
+        stratify_y = None
+        if len(unique_classes) > 1 and min_class_count >= 2:
+            stratify_y = y
+            logger.info(f"Usando estratificação. Classes: {len(unique_classes)}, menor classe: {min_class_count} amostras")
+        else:
+            logger.warning(f"Não é possível usar estratificação. Classes: {len(unique_classes)}, menor classe: {min_class_count} amostras")
+
+        try:
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=self.config.get('test_size', 0.25), 
+                random_state=self.config.get('random_state', 42),
+                stratify=stratify_y
+            )
+        except ValueError as e:
+            logger.warning(f"Erro na divisão estratificada: {e}. Tentando sem estratificação.")
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=self.config.get('test_size', 0.25), 
+                random_state=self.config.get('random_state', 42)
+            )
+
+        self.model = DecisionTreeClassifier(
+            criterion=self.config.get('criterion', 'gini'),
+            max_depth=self.config.get('max_depth', None),
+            min_samples_split=self.config.get('min_samples_split', 2),
+            min_samples_leaf=self.config.get('min_samples_leaf', 1),
+            random_state=self.config.get('random_state', 42)
         )
         
-        return model
-    
-    def train(self, df: pd.DataFrame, sensor_columns: List[str]) -> bool:
-        """Treina modelo LSTM"""
-        if not self.ml_available or not self.prepare_data(df, sensor_columns):
-            return False
-        
-        logger.info("Iniciando treinamento LSTM...")
-        
         try:
-            X, y = self.create_sequences()
-            
-            if X.shape[0] == 0:
-                logger.error("Não foi possível criar sequências para treinamento")
-                return False
-            
-            # Reshape y para formato apropriado
-            y = y.reshape(y.shape[0], -1)
-            
-            # Divisão treino/teste
-            split_idx = int(X.shape[0] * self.config['train_split'])
-            X_train, X_test = X[:split_idx], X[split_idx:]
-            y_train, y_test = y[:split_idx], y[split_idx:]
-            
-            logger.info(f"Divisão: Treino={X_train.shape[0]}, Teste={X_test.shape[0]}")
-            
-            # Construir e treinar modelo
-            self.model = self.build_model(input_shape=(X_train.shape[1], X_train.shape[2]))
-            
-            callbacks = [
-                EarlyStopping(
-                    monitor='val_loss',
-                    patience=self.config['patience'],
-                    restore_best_weights=True,
-                    verbose=1
-                )
-            ]
-            
-            history = self.model.fit(
-                X_train, y_train,
-                epochs=self.config['epochs'],
-                batch_size=self.config['batch_size'],
-                validation_split=self.config['validation_split'],
-                callbacks=callbacks,
-                shuffle=False,
-                verbose=1
-            )
-            
-            # Avaliar modelo
-            train_loss = self.model.evaluate(X_train, y_train, verbose=0)
-            test_loss = self.model.evaluate(X_test, y_test, verbose=0)
-            
-            logger.info(f"Loss - Treino: {train_loss[0]:.4f}, Teste: {test_loss[0]:.4f}")
-            logger.info(f"MAE - Treino: {train_loss[1]:.4f}, Teste: {test_loss[1]:.4f}")
-            
-            # Salvar gráfico de treinamento
-            self._plot_training_history(history)
-            
+            self.model.fit(X_train, y_train)
+            accuracy = self.model.score(X_test, y_test)
+            logger.info(f"Árvore de Decisão treinada. Acurácia no teste: {accuracy:.4f}")
+            self._plot_decision_tree()
             self.is_trained = True
             return True
-            
         except Exception as e:
-            logger.error(f"Erro durante treinamento LSTM: {e}")
+            logger.error(f"Erro durante o treinamento da Árvore de Decisão: {e}", exc_info=True)
             return False
-    
-    def predict_future(self, last_readings: pd.DataFrame) -> Optional[np.ndarray]:
-        """Faz predições futuras"""
-        if not self.is_trained or self.scaler is None:
-            logger.error("Modelo não treinado ou scaler não disponível")
+
+    def predict(self, df_features: pd.DataFrame) -> Optional[List[str]]:
+        if not self.model or not self.is_trained:
+            logger.error("Modelo de Árvore de Decisão não treinado.")
             return None
         
-        try:
-            # Preparar entrada
-            input_data = last_readings[self.feature_columns].iloc[-self.config['look_back']:].values
-            input_scaled = self.scaler.transform(input_data)
-            input_reshaped = np.expand_dims(input_scaled, axis=0)
-            
-            # Predição
-            prediction_scaled = self.model.predict(input_reshaped, verbose=0)
-            
-            # Reshape para (horizon, n_targets)
-            prediction_reshaped = prediction_scaled.reshape(
-                self.config['prediction_horizon'], 
-                len(self.target_columns)
-            )
-            
-            # Inverter escalonamento
-            target_indices = [self.df_lstm.columns.get_loc(col) for col in self.target_columns]
-            dummy_prediction = np.zeros((prediction_reshaped.shape[0], len(self.feature_columns)))
-            
-            for i, target_idx in enumerate(target_indices):
-                dummy_prediction[:, target_idx] = prediction_reshaped[:, i]
-            
-            prediction_unscaled = self.scaler.inverse_transform(dummy_prediction)
-            
-            return prediction_unscaled[:, target_indices]
-            
-        except Exception as e:
-            logger.error(f"Erro durante predição: {e}")
+        missing_cols = [col for col in self.feature_columns if col not in df_features.columns]
+        if missing_cols:
+            logger.error(f"Colunas de features ausentes nos dados de predição. Esperado: {self.feature_columns}, Ausentes: {missing_cols}")
             return None
-    
-    def _plot_training_history(self, history):
-        """Salva gráfico do histórico de treinamento"""
+        
+        X_pred = df_features[self.feature_columns].copy()
+        X_pred.fillna(X_pred.mean(), inplace=True) # Impute NaNs consistent with training if any
+
         try:
-            plt.figure(figsize=(12, 4))
-            
-            plt.subplot(1, 2, 1)
-            plt.plot(history.history['loss'], label='Treino')
-            plt.plot(history.history['val_loss'], label='Validação')
-            plt.title('Histórico de Loss')
-            plt.xlabel('Épocas')
-            plt.ylabel('Loss')
-            plt.legend()
-            plt.grid(True)
-            
-            plt.subplot(1, 2, 2)
-            plt.plot(history.history['mae'], label='Treino')
-            plt.plot(history.history['val_mae'], label='Validação')
-            plt.title('Histórico de MAE')
-            plt.xlabel('Épocas')
-            plt.ylabel('MAE')
-            plt.legend()
-            plt.grid(True)
-            
-            plt.tight_layout()
-            plt.savefig('lstm_training_history.png', dpi=300, bbox_inches='tight')
-            plt.close()
-            
-            logger.info("Gráfico de treinamento salvo: lstm_training_history.png")
-            
+            predictions_encoded = self.model.predict(X_pred)
+            predictions_decoded = self.label_encoder.inverse_transform(predictions_encoded)
+            return predictions_decoded.tolist()
         except Exception as e:
-            logger.warning(f"Erro ao salvar gráfico: {e}")
+            logger.error(f"Erro durante a predição com Árvore de Decisão: {e}", exc_info=True)
+            return None
+
+    def _plot_decision_tree(self):
+        if not self.model: return
+        try:
+            plt.figure(figsize=tuple(self.config.get('plot_figsize', [20,10]))) # Ensure tuple
+            plot_tree(
+                self.model,
+                feature_names=self.feature_columns,
+                class_names=self.class_names,
+                filled=True,
+                rounded=True,
+                fontsize=self.config.get('plot_fontsize', 10),
+                max_depth=self.config.get('plot_max_depth', 5) # Limit plot depth for readability
+            )
+            plot_path = self.config.get('plot_path', 'decision_tree.png')
+            plt.title("Árvore de Decisão - Qualidade do Ar (Plot Max Depth: 5)")
+            plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+            plt.close()
+            logger.info(f"Gráfico da Árvore de Decisão salvo em: {plot_path}")
+        except Exception as e:
+            logger.warning(f"Erro ao salvar gráfico da Árvore de Decisão: {e}", exc_info=True)
 
 class SentinelaVerde:
     """Classe principal do sistema Sentinela Verde"""
-    
     def __init__(self, config_path: str = None):
         self.config_manager = ConfigManager(config_path)
         self.config = self.config_manager.config
         
-        # Inicializar componentes
         self.validator = DataValidator(self.config['sensor_ranges'])
-        self.classifier = AirQualityClassifier(self.config['air_quality_limits'])
-        self.lstm_predictor = LSTMPredictor(self.config['lstm']) if self.config['lstm']['enabled'] else None
+        self.rule_classifier = AirQualityClassifier(self.config['air_quality_limits'])
         
-        self.df_data = None
-        self.df_classified = None
+        dt_conf = self.config.get('decision_tree', {})
+        self.decision_tree_pipeline = DecisionTreePipeline(dt_conf) if dt_conf.get('enabled', False) else None
         
+        gf_conf = self.config.get('gas_forecasting', {})
+        self.gas_forecaster = SimpleGasForecaster(gf_conf) if gf_conf.get('enabled', False) else None
+        
+        self.df_data: Optional[pd.DataFrame] = None
+        self.df_classified_rules: Optional[pd.DataFrame] = None # Data classified by rules
+        
+        # Results attributes for frontend
+        self.latest_reading_data: Optional[pd.Series] = None
+        self.latest_reading_rules_classification: Optional[str] = None
+        self.latest_reading_dt_classification: Optional[str] = None
+        self.df_future_gases_forecast: Optional[pd.DataFrame] = None
+        self.future_quality_predictions_dt: Optional[List[str]] = None
+        self.last_timestamp_processed: Optional[datetime] = None
+
     def load_data(self) -> bool:
-        """Carrega e valida dados de entrada"""
         input_file = self.config['files']['input_csv']
-        
         try:
-            # Carregar CSV
             self.df_data = pd.read_csv(input_file)
             logger.info(f"Arquivo '{input_file}' carregado: {len(self.df_data)} registros")
             
-            # Verificar colunas obrigatórias
-            expected_columns = self.config['columns']['sensors']
-            missing_columns = [col for col in expected_columns if col not in self.df_data.columns]
-            
-            if missing_columns:
-                logger.warning(f"Colunas esperadas não encontradas: {missing_columns}")
-            
-            # Processar timestamp
-            timestamp_col = self.config['columns']['timestamp']
-            if timestamp_col and timestamp_col in self.df_data.columns:
+            ts_col = self.config['columns']['timestamp']
+            if ts_col and ts_col in self.df_data.columns:
                 try:
-                    self.df_data[timestamp_col] = pd.to_datetime(self.df_data[timestamp_col])
-                    self.df_data.set_index(timestamp_col, inplace=True)
-                    logger.info(f"Coluna '{timestamp_col}' processada como índice temporal")
+                    self.df_data[ts_col] = pd.to_datetime(self.df_data[ts_col])
+                    self.df_data.set_index(ts_col, inplace=True)
+                    self.df_data.sort_index(inplace=True) # Ensure chronological order
+                    logger.info(f"Coluna '{ts_col}' processada como índice temporal e ordenada.")
+                    if not self.df_data.empty:
+                        self.last_timestamp_processed = self.df_data.index[-1]
                 except Exception as e:
-                    logger.warning(f"Erro ao processar timestamp: {e}")
+                    logger.warning(f"Erro ao processar timestamp '{ts_col}': {e}. Continuando sem índice temporal.")
+            else:
+                logger.warning(f"Coluna timestamp '{ts_col}' não encontrada ou não configurada. Operações temporais podem ser limitadas.")
+
+            self.df_data, _ = self.validator.validate_sensor_data(self.df_data)
+            self.df_data = self.validator.detect_anomalies(self.df_data, self.config['columns']['sensors'])
             
-            # Validar dados
-            self.df_data, validation_stats = self.validator.validate_sensor_data(self.df_data)
-            
-            # Detectar anomalias
-            self.df_data = self.validator.detect_anomalies(
-                self.df_data, 
-                self.config['columns']['sensors']
-            )
-            
+            # Handle NaNs after validation - e.g., forward fill for time series
+            for col in self.config['columns']['sensors']:
+                if col in self.df_data.columns:
+                    self.df_data[col] = pd.to_numeric(self.df_data[col], errors='coerce') # Ensure numeric
+            self.df_data.ffill(inplace=True) # Forward fill NaNs
+            self.df_data.bfill(inplace=True) # Backward fill remaining NaNs at the beginning
+
             return True
-            
         except FileNotFoundError:
             logger.error(f"Arquivo não encontrado: {input_file}")
-            return False
         except Exception as e:
-            logger.error(f"Erro ao carregar dados: {e}")
-            return False
-    
-    def classify_air_quality(self) -> bool:
-        """Classifica qualidade do ar"""
-        if self.df_data is None:
-            logger.error("Dados não carregados")
-            return False
-        
+            logger.error(f"Erro ao carregar dados: {e}", exc_info=True)
+        return False
+
+    def classify_air_quality_rules(self) -> bool:
+        if self.df_classified_rules is not None:
+            self.rule_classifier.diagnose_classification(self.df_classified_rules)
+
+        if self.df_data is None: logger.error("Dados não carregados para classificação por regras."); return False
         try:
-            logger.info("Iniciando classificação da qualidade do ar...")
-            self.df_classified = self.classifier.calculate_air_quality(self.df_data)
+            logger.info("Iniciando classificação da qualidade do ar (baseada em regras)...")
+            self.df_classified_rules = self.rule_classifier.calculate_air_quality(self.df_data)
             
-            # Salvar dados classificados
             output_file = self.config['files']['output_classified_csv']
-            self.df_classified.reset_index().to_csv(output_file, index=False)
-            logger.info(f"Dados classificados salvos em: {output_file}")
+            self.df_classified_rules.reset_index().to_csv(output_file, index=False) # Save with index if it's timestamp
+            logger.info(f"Dados classificados (regras) salvos em: {output_file}")
             
+            if not self.df_classified_rules.empty:
+                 self.latest_reading_data = self.df_classified_rules.iloc[-1].copy()
+                 self.latest_reading_rules_classification = self.latest_reading_data.get('Qualidade_Ar_Calculada')
             return True
-            
         except Exception as e:
-            logger.error(f"Erro na classificação: {e}")
-            return False
-    
-    def train_and_predict(self) -> bool:
-        """Treina modelo LSTM e faz predições"""
-        if not self.config['lstm']['enabled'] or self.lstm_predictor is None:
-            logger.info("LSTM desabilitado")
-            return True
-        
-        if self.df_classified is None:
-            logger.error("Dados não classificados")
-            return False
-        
-        try:
-            # Treinar modelo
-            if not self.lstm_predictor.train(self.df_classified, self.config['columns']['sensors']):
-                logger.error("Falha no treinamento LSTM")
-                return False
-            
-            # Fazer predições
-            predictions = self.lstm_predictor.predict_future(self.df_classified)
-            
-            if predictions is not None:
-                self._save_dashboard_data(predictions)
-                return True
-            else:
-                logger.error("Falha na predição")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Erro no LSTM: {e}")
-            return False
-    
-    def _save_dashboard_data(self, predictions: np.ndarray):
-        """Salva dados para dashboard"""
-        try:
-            # Última leitura
-            last_reading = self.df_classified.iloc[-1]
-            timestamp_last = last_reading.name if hasattr(last_reading, 'name') else datetime.now()
-            
-            if not isinstance(timestamp_last, datetime):
-                timestamp_last = datetime.now()
-            
-            # Timestamps futuros
-            future_timestamps = pd.date_range(
-                start=timestamp_last + timedelta(hours=1),
-                periods=self.config['lstm']['prediction_horizon'],
-                freq='H'
-            )
-            
-            # Estrutura do JSON
-            dashboard_data = {
-                'metadata': {
-                    'generated_at': datetime.now().isoformat(),
-                    'model_version': '2.0',
-                    'prediction_horizon_hours': self.config['lstm']['prediction_horizon']
-                },
-                'ultima_leitura_registrada': {
-                    'timestamp': timestamp_last.isoformat(),
-                    'valores': {
-                        col: round(float(last_reading[col]), 5) 
-                        if pd.notna(last_reading[col]) and isinstance(last_reading[col], (int, float, np.number))
-                        else str(last_reading[col])
-                        for col in self.config['columns']['sensors'] 
-                        if col in last_reading
-                    },
-                    'qualidade_ar': {
-                        'categoria': last_reading.get('Qualidade_Ar_Calculada', 'N/A'),
-                        'max_subindice': round(float(last_reading.get('Max_SubIndice', 0)), 4),
-                        'risco_saude': last_reading.get('Risco_Saude', 'N/A')
-                    }
-                },
-                'previsoes_futuras': []
-            }
-            
-            # Adicionar predições
-            for i, timestamp in enumerate(future_timestamps):
-                prediction_values = {}
-                for j, target_col in enumerate(self.config['lstm']['target_columns']):
-                    prediction_values[f'{target_col}_previsto'] = round(float(predictions[i, j]), 5)
-                
-                dashboard_data['previsoes_futuras'].append({
-                    'timestamp': timestamp.isoformat(),
-                    'valores_previstos': prediction_values
-                })
-            
-            # Salvar JSON
-            output_file = self.config['files']['output_prediction_json']
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump(dashboard_data, f, indent=2, ensure_ascii=False)
-            
-            logger.info(f"Dados do dashboard salvos em: {output_file}")
-            
-        except Exception as e:
-            logger.error(f"Erro ao salvar dados do dashboard: {e}")
-    
-    def run(self) -> bool:
-        """Executa pipeline completo"""
-        logger.info("=== Iniciando Sentinela Verde ===")
-        
-        try:
-            # 1. Carregar dados
-            if not self.load_data():
-                return False
-            
-            # 2. Classificar qualidade do ar
-            if not self.classify_air_quality():
-                return False
-            
-            # 3. Treinar e fazer predições (se habilitado)
-            if not self.train_and_predict():
-                return False
-            
-            logger.info("=== Sentinela Verde finalizado com sucesso ===")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Erro crítico: {e}")
+            logger.error(f"Erro na classificação por regras: {e}", exc_info=True)
+        return False
+
+  # Adicione este código ao final do seu arquivo fixed_app.py
+
+# Completar o método process_models_and_forecasts()
+    def process_models_and_forecasts(self) -> bool:
+        if self.df_classified_rules is None:
+            logger.error("Dados não classificados por regras. Execute classify_air_quality_rules primeiro.")
             return False
 
+        # 1. Train/Use Decision Tree
+        if self.decision_tree_pipeline:
+            dt_conf = self.config.get('decision_tree', {})
+            feature_cols = dt_conf.get('feature_columns', [])
+            target_col = dt_conf.get('target_column', 'Qualidade_Ar_Calculada')
+
+            if target_col not in self.df_classified_rules.columns:
+                logger.error(f"Coluna alvo '{target_col}' para Árvore de Decisão não encontrada.")
+                return False
+            
+            missing_features = [col for col in feature_cols if col not in self.df_classified_rules.columns]
+            if missing_features:
+                logger.error(f"Colunas de feature para Árvore de Decisão não encontradas: {missing_features}")
+                return False
+
+            # Train DT if not already trained
+            if not self.decision_tree_pipeline.is_trained:
+                df_for_dt_train = self.df_classified_rules.dropna(subset=[target_col]).copy()
+                
+                if len(df_for_dt_train) < dt_conf.get('min_data_points_tree', 30):
+                    logger.warning("Dados insuficientes para treinar Árvore de Decisão")
+                else:
+                    success = self.decision_tree_pipeline.train(df_for_dt_train, feature_cols, target_col)
+                    if success:
+                        logger.info("Árvore de Decisão treinada com sucesso")
+                    else:
+                        logger.error("Falha no treinamento da Árvore de Decisão")
+
+            # Make prediction for latest reading
+            if self.decision_tree_pipeline.is_trained and self.latest_reading_data is not None:
+                latest_features = pd.DataFrame([self.latest_reading_data[feature_cols]])
+                predictions = self.decision_tree_pipeline.predict(latest_features)
+                if predictions:
+                    self.latest_reading_dt_classification = predictions[0]
+
+        # 2. Gas Forecasting
+        if self.gas_forecaster:
+            gf_conf = self.config.get('gas_forecasting', {})
+            
+            # Train forecaster
+            if self.gas_forecaster.train(self.df_classified_rules):
+                logger.info("Modelos de previsão de gases treinados")
+                
+                # Generate forecasts
+                prediction_horizon = gf_conf.get('prediction_horizon_hours', 24)
+                last_ts = self.last_timestamp_processed
+                
+                self.df_future_gases_forecast = self.gas_forecaster.forecast(
+                    prediction_horizon, last_ts
+                )
+                
+                if self.df_future_gases_forecast is not None:
+                    logger.info(f"Previsões de gases geradas para {prediction_horizon} períodos")
+                    
+                    # Classify future air quality using rules
+                    future_classified = self.rule_classifier.calculate_air_quality(
+                        self.df_future_gases_forecast.copy()
+                    )
+                    
+                    # Predict future air quality using Decision Tree if available
+                    if self.decision_tree_pipeline and self.decision_tree_pipeline.is_trained:
+                        dt_conf = self.config.get('decision_tree', {})
+                        feature_cols = dt_conf.get('feature_columns', [])
+                        
+                        available_features = [col for col in feature_cols 
+                                            if col in self.df_future_gases_forecast.columns]
+                        
+                        if available_features:
+                            self.future_quality_predictions_dt = self.decision_tree_pipeline.predict(
+                                self.df_future_gases_forecast[available_features]
+                            )
+
+        return True
+
+    def run_analysis(self) -> bool:
+        """Executa toda a análise do sistema"""
+        logger.info("=== INICIANDO ANÁLISE SENTINELA VERDE ===")
+        
+        # 1. Carregar dados
+        if not self.load_data():
+            logger.error("Falha ao carregar dados. Abortando análise.")
+            return False
+        
+        # 2. Classificar qualidade do ar por regras
+        if not self.classify_air_quality_rules():
+            logger.error("Falha na classificação por regras. Abortando análise.")
+            return False
+        
+        # 3. Processar modelos e previsões
+        if not self.process_models_and_forecasts():
+            logger.error("Falha no processamento de modelos. Continuando...")
+        
+        # 4. Exibir resultados
+        self.display_results()
+        
+        logger.info("=== ANÁLISE CONCLUÍDA ===")
+        return True
+
+    def display_results(self):
+        """Exibe os resultados da análise no console"""
+        print("\n" + "="*60)
+        print("           RELATÓRIO SENTINELA VERDE")
+        print("="*60)
+        
+        if self.latest_reading_data is not None:
+            print(f"\n📊 ÚLTIMA LEITURA:")
+            print(f"   Timestamp: {self.last_timestamp_processed}")
+            
+            # Mostrar valores dos sensores
+            sensor_cols = self.config['columns']['sensors']
+            for sensor in sensor_cols:
+                if sensor in self.latest_reading_data:
+                    value = self.latest_reading_data[sensor]
+                    print(f"   {sensor}: {value:.2f}")
+            
+            print(f"\n🌬️  QUALIDADE DO AR:")
+            print(f"   Classificação (Regras): {self.latest_reading_rules_classification}")
+            
+            if hasattr(self, 'latest_reading_dt_classification') and self.latest_reading_dt_classification:
+                print(f"   Classificação (IA): {self.latest_reading_dt_classification}")
+            
+            if 'Risco_Saude' in self.latest_reading_data:
+                print(f"   Risco à Saúde: {self.latest_reading_data['Risco_Saude']}")
+        
+        if self.df_future_gases_forecast is not None:
+            print(f"\n🔮 PREVISÕES (Próximas {len(self.df_future_gases_forecast)} horas):")
+            target_gases = self.config.get('gas_forecasting', {}).get('target_gas_columns', [])
+            
+            for gas in target_gases:
+                if gas in self.df_future_gases_forecast.columns:
+                    avg_forecast = self.df_future_gases_forecast[gas].mean()
+                    max_forecast = self.df_future_gases_forecast[gas].max()
+                    print(f"   {gas}: Média {avg_forecast:.2f}, Máximo {max_forecast:.2f}")
+        
+        print("\n📁 ARQUIVOS GERADOS:")
+        if hasattr(self, 'df_classified_rules') and self.df_classified_rules is not None:
+            print(f"   • {self.config['files']['output_classified_csv']}")
+        
+        dt_config = self.config.get('decision_tree', {})
+        if dt_config.get('enabled') and 'plot_path' in dt_config:
+            print(f"   • {dt_config['plot_path']}")
+        
+        print(f"   • sentinela_verde.log")
+        print("="*60)
+
+
+def create_sample_data():
+    """Cria dados de exemplo para teste se o arquivo não existir"""
+    filename = 'meus_dados_arduino.csv'
+    if not Path(filename).exists():
+        logger.info(f"Criando arquivo de dados de exemplo: {filename}")
+        
+        dates = pd.date_range(start='2024-01-01', end='2024-01-07', freq='H')
+        n_records = len(dates)
+        
+        np.random.seed(42)
+        
+        # Simular condições variadas ao longo do tempo
+        base_quality = np.random.choice(['boa', 'regular', 'ruim'], n_records, 
+                                       p=[0.6, 0.3, 0.1])  # 60% boa, 30% regular, 10% ruim
+        
+        data = {
+            'Timestamp': dates,
+            'Amonia_ppm': [],
+            'Benzeno_ppm': [],
+            'Alcool_ppm': [],
+            'Dioxido_Carbono_ppm': [],
+            'Temperatura_C': np.random.normal(25, 5, n_records).clip(-10, 50),
+            'Umidade_Relativa_percent': np.random.normal(60, 15, n_records).clip(20, 90)
+        }
+        
+        # Gerar dados baseados na qualidade pretendida
+        for i, quality in enumerate(base_quality):
+            if quality == 'boa':
+                data['Amonia_ppm'].append(np.random.normal(0.2, 0.1))
+                data['Benzeno_ppm'].append(np.random.normal(0.01, 0.005))
+                data['Alcool_ppm'].append(np.random.normal(0.5, 0.2))
+                data['Dioxido_Carbono_ppm'].append(np.random.normal(600, 100))
+            elif quality == 'regular':
+                data['Amonia_ppm'].append(np.random.normal(0.7, 0.2))
+                data['Benzeno_ppm'].append(np.random.normal(0.03, 0.01))
+                data['Alcool_ppm'].append(np.random.normal(1.2, 0.3))
+                data['Dioxido_Carbono_ppm'].append(np.random.normal(1200, 200))
+            else:  # ruim
+                data['Amonia_ppm'].append(np.random.normal(1.2, 0.3))
+                data['Benzeno_ppm'].append(np.random.normal(0.06, 0.02))
+                data['Alcool_ppm'].append(np.random.normal(2.5, 0.5))
+                data['Dioxido_Carbono_ppm'].append(np.random.normal(1800, 300))
+        
+        # Aplicar limites físicos
+        data['Amonia_ppm'] = np.clip(data['Amonia_ppm'], 0, 5)
+        data['Benzeno_ppm'] = np.clip(data['Benzeno_ppm'], 0, 0.2)
+        data['Alcool_ppm'] = np.clip(data['Alcool_ppm'], 0, 5)
+        data['Dioxido_Carbono_ppm'] = np.clip(data['Dioxido_Carbono_ppm'], 300, 3000)
+        
+        df_sample = pd.DataFrame(data)
+        df_sample.to_csv(filename, index=False)
+        logger.info(f"Arquivo de exemplo criado com {n_records} registros - distribuição mais realista")
+
+
 def main():
-    """Função principal"""
+    """Função principal do sistema"""
     try:
+        print("Iniciando Sistema Sentinela Verde...")
+        
+        # Criar dados de exemplo se necessário
+        create_sample_data()
+        
         # Inicializar sistema
         sentinela = SentinelaVerde()
         
-        # Executar pipeline
-        success = sentinela.run()
+        # Executar análise completa
+        success = sentinela.run_analysis()
         
         if success:
             print("\n✅ Sistema executado com sucesso!")
-            print("📊 Verifique os arquivos gerados:")
-            print(f"   - {sentinela.config['files']['output_classified_csv']}")
-            print(f"   - {sentinela.config['files']['output_prediction_json']}")
-            print("📈 Gráficos salvos como PNG")
         else:
-            print("\n❌ Execução finalizada com erros. Verifique o log.")
+            print("\n❌ Sistema executado com erros. Verifique o log.")
             
     except KeyboardInterrupt:
-        print("\n⚠️  Execução interrompida pelo usuário")
+        print("\n\n⚠️  Execução interrompida pelo usuário")
     except Exception as e:
-        logger.error(f"Erro crítico na main: {e}")
-        print(f"\n💥 Erro crítico: {e}")
+        logger.error(f"Erro fatal no sistema: {e}", exc_info=True)
+        print(f"\n❌ Erro fatal: {e}")
+
 
 if __name__ == "__main__":
     main()

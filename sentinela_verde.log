@@ -1,8 +1,42 @@
-2025-05-26 11:13:51,630 - INFO - Arquivo de configuração não encontrado. Criando configuração padrão.
-2025-05-26 11:13:51,632 - INFO - Configuração padrão salva em config.yaml
-2025-05-26 11:13:58,494 - ERROR - Erro crítico na main: invalid syntax (pywrap_tensorflow_internal.py, line 114)
-2025-05-26 11:16:11,762 - WARNING - Erro ao carregar configuração: expected a single document in the stream
+2025-05-29 19:29:00,818 - INFO - Criando arquivo de dados de exemplo: meus_dados_arduino.csv
+2025-05-29 19:29:00,834 - INFO - Arquivo de exemplo criado com 145 registros - distribuição mais realista
+2025-05-29 19:29:00,837 - WARNING - Erro ao carregar configuração de config.yaml: expected a single document in the stream
   in "config.yaml", line 2, column 1
 but found another document
-  in "config.yaml", line 43, column 1. Usando configuração padrão.
-2025-05-26 11:16:12,398 - ERROR - Erro crítico na main: invalid syntax (pywrap_tensorflow_internal.py, line 114)
+  in "config.yaml", line 41, column 1. Usando configuração padrão.
+2025-05-29 19:29:00,837 - INFO - === INICIANDO ANÁLISE SENTINELA VERDE ===
+2025-05-29 19:29:00,862 - INFO - Arquivo 'meus_dados_arduino.csv' carregado: 145 registros
+2025-05-29 19:29:00,868 - INFO - Coluna 'Timestamp' processada como índice temporal e ordenada.
+2025-05-29 19:29:00,874 - INFO - Detectados 3 outliers (IQR) em Amonia_ppm. Eles não são removidos por esta função.
+2025-05-29 19:29:00,876 - INFO - Detectados 4 outliers (IQR) em Benzeno_ppm. Eles não são removidos por esta função.
+2025-05-29 19:29:00,879 - INFO - Detectados 7 outliers (IQR) em Alcool_ppm. Eles não são removidos por esta função.
+2025-05-29 19:29:00,881 - INFO - Detectados 1 outliers (IQR) em Dioxido_Carbono_ppm. Eles não são removidos por esta função.
+2025-05-29 19:29:00,885 - INFO - Iniciando classificação da qualidade do ar (baseada em regras)...
+2025-05-29 19:29:00,885 - INFO - Calculando qualidade do ar (regras) para: ['Amonia_ppm', 'Benzeno_ppm', 'Alcool_ppm', 'Dioxido_Carbono_ppm']
+2025-05-29 19:29:00,889 - INFO - Distribuição da Qualidade do Ar (Regras):
+2025-05-29 19:29:00,890 - INFO -   Bom: 49.0%
+2025-05-29 19:29:00,890 - INFO -   Regular: 24.8%
+2025-05-29 19:29:00,891 - INFO -   Excelente: 15.2%
+2025-05-29 19:29:00,891 - INFO -   Ruim: 8.3%
+2025-05-29 19:29:00,891 - INFO -   Muito Ruim: 2.1%
+2025-05-29 19:29:00,891 - INFO -   Crítico: 0.7%
+2025-05-29 19:29:00,896 - INFO - Dados classificados (regras) salvos em: dados_arduino_classificados_regras.csv
+2025-05-29 19:29:00,902 - INFO - Iniciando treinamento da Árvore de Decisão...
+2025-05-29 19:29:00,906 - WARNING - Não é possível usar estratificação. Classes: 6, menor classe: 1 amostras
+2025-05-29 19:29:00,915 - INFO - Árvore de Decisão treinada. Acurácia no teste: 0.8919
+2025-05-29 19:29:01,931 - INFO - Gráfico da Árvore de Decisão salvo em: decision_tree_air_quality.png
+2025-05-29 19:29:01,932 - INFO - Árvore de Decisão treinada com sucesso
+2025-05-29 19:29:01,945 - INFO - Treinando previsores simples de gases...
+2025-05-29 19:29:01,946 - INFO - Frequência de dados inferida para treino do previsor: h
+2025-05-29 19:29:02,020 - INFO - Treinado modelo Exponential Smoothing para Amonia_ppm
+2025-05-29 19:29:02,073 - INFO - Treinado modelo Exponential Smoothing para Benzeno_ppm
+2025-05-29 19:29:02,122 - INFO - Treinado modelo Exponential Smoothing para Alcool_ppm
+2025-05-29 19:29:02,180 - INFO - Treinado modelo Exponential Smoothing para Dioxido_Carbono_ppm
+2025-05-29 19:29:02,181 - INFO - Modelos de previsão de gases treinados
+2025-05-29 19:29:02,188 - INFO - Previsões de gases geradas para 24 períodos
+2025-05-29 19:29:02,189 - INFO - Calculando qualidade do ar (regras) para: ['Amonia_ppm', 'Benzeno_ppm', 'Alcool_ppm', 'Dioxido_Carbono_ppm']
+2025-05-29 19:29:02,193 - INFO - Distribuição da Qualidade do Ar (Regras):
+2025-05-29 19:29:02,193 - INFO -   Bom: 75.0%
+2025-05-29 19:29:02,194 - INFO -   Regular: 25.0%
+2025-05-29 19:29:02,195 - ERROR - Colunas de features ausentes nos dados de predição. Esperado: ['Amonia_ppm', 'Benzeno_ppm', 'Alcool_ppm', 'Dioxido_Carbono_ppm', 'Temperatura_C', 'Umidade_Relativa_percent'], Ausentes: ['Temperatura_C', 'Umidade_Relativa_percent']
+2025-05-29 19:29:02,198 - INFO - === ANÁLISE CONCLUÍDA ===

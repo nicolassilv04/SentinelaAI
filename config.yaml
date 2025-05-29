@@ -1,8 +1,6 @@
 ---
 files:
-  input_csv: "meus_dados_arduino.csv"
   output_classified_csv: "dados_arduino_classificados.csv" 
-  output_prediction_json: "sentinela_dashboard_data_multialvo.json"
   config_file: "config.yaml"
 
 columns:
