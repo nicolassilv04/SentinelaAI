@@ -1,0 +1,43 @@
+---
+files:
+  input_csv: "meus_dados_arduino.csv"
+  output_classified_csv: "dados_arduino_classificados.csv" 
+  output_prediction_json: "sentinela_dashboard_data_multialvo.json"
+  config_file: "config.yaml"
+
+columns:
+  sensors:
+    - "Amonia_ppm"
+    - "Benzeno_ppm"
+    - "Alcool_ppm" 
+    - "Dioxido_Carbono_ppm"
+    - "Temperatura_C"
+    - "Umidade_Relativa_percent"
+  timestamp: "Timestamp"
+
+air_quality_limits:
+  Amonia_ppm: 0.1
+  Benzeno_ppm: 0.002
+  Alcool_ppm: 0.5
+  Dioxido_Carbono_ppm: 1000
+
+sensor_ranges:
+  Amonia_ppm: {min: 0, max: 50}
+  Benzeno_ppm: {min: 0, max: 10}
+  Alcool_ppm: {min: 0, max: 100}
+  Dioxido_Carbono_ppm: {min: 0, max: 5000}
+  Temperatura_C: {min: -40, max: 85}
+  Umidade_Relativa_percent: {min: 0, max: 100}
+
+lstm:
+  enabled: true
+  look_back: 48
+  prediction_horizon: 24
+  target_columns: ["Amonia_ppm", "Benzeno_ppm", "Alcool_ppm", "Dioxido_Carbono_ppm"]
+  train_split: 0.8
+  validation_split: 0.15
+  epochs: 70
+  batch_size: 32
+  patience: 12
+  min_data_points: 100
+---
