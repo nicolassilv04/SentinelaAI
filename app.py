@@ -68,36 +68,31 @@ class ConfigManager:
         },
         'decision_tree': {
             'enabled': True,
-            'min_data_points_tree': 30, # Minimum samples to attempt training
-            'test_size': 0.25,
+            'min_data_points_tree': 50,
+            'test_size': 0.30,
             'random_state': 42,
-            'criterion': 'gini', # 'gini' or 'entropy'
-            'max_depth': 10, # Limit depth to prevent overfitting and for better visualization
-            'min_samples_split': 5,
-            'min_samples_leaf': 3,
-            'plot_figsize': [25, 15], # Adjusted for potentially larger trees
-            'plot_fontsize': 8,
-            'plot_path': 'decision_tree_air_quality.png',
-            'feature_columns': [ # Features for the decision tree
+            'criterion': 'entropy',
+            'max_depth': 10,
+            'feature_columns': [ 
                 'Amonia_ppm', 'Benzeno_ppm', 'Alcool_ppm', 'Dioxido_Carbono_ppm',
                 'Temperatura_C', 'Umidade_Relativa_percent'
             ],
-            'target_column': 'Qualidade_Ar_Calculada' # From AirQualityClassifier
+            'target_column': 'Qualidade_Ar_Calculada' 
         },
         'gas_forecasting': {
             'enabled': True,
             'prediction_horizon_hours': 24,
-            'target_gas_columns': [ # Gases to forecast
+            'target_gas_columns': [ 
                 'Amonia_ppm', 'Benzeno_ppm', 'Alcool_ppm', 'Dioxido_Carbono_ppm'
             ],
-            'min_data_for_train': 50 # Minimum data points for training ETS models
+            'min_data_for_train': 50 
         },
     }
-    
+ #Este é o método construtor da sua classe. Ele é chamado automaticamente toda vez que você cria uma nova instância dessa classe.   
     def __init__(self, config_path: str = None):
         self.config_path = config_path or self.DEFAULT_CONFIG['files']['config_file']
         self.config = self.load_config()
-    
+#Este método é responsável por carregar o arquivo de configuração e lidar com diferentes cenários.  
     def load_config(self) -> Dict:
         config_file = Path(self.config_path)
         if config_file.exists():
@@ -115,7 +110,6 @@ class ConfigManager:
         return self.DEFAULT_CONFIG.copy()
 
     def _merge_configs(self, default: Dict, loaded: Dict) -> Dict:
-        """Recursively merges loaded configuration into default configuration."""
         for key, value in loaded.items():
             if isinstance(value, dict) and key in default and isinstance(default[key], dict):
                 default[key] = self._merge_configs(default[key], value)
@@ -135,7 +129,7 @@ class DataValidator:
     """Validador de dados dos sensores"""
     def __init__(self, sensor_ranges: Dict[str, Dict[str, float]]):
         self.sensor_ranges = sensor_ranges
-    
+ #Este método é o coração da validação baseada em faixas físicas. Ele limpa os dados removendo valores que estão fora das faixas esperadas para cada sensor.
     def validate_sensor_data(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, int]]:
         validation_stats = {}
         df_clean = df.copy()
@@ -144,22 +138,17 @@ class DataValidator:
             if column in self.sensor_ranges:
                 initial_count = len(df_clean)
                 sensor_range = self.sensor_ranges[column]
-                
-                # Convert to numeric, coercing errors. This helps if data is read as object.
                 df_clean[column] = pd.to_numeric(df_clean[column], errors='coerce')
                 
                 mask = (df_clean[column] >= sensor_range['min']) & (df_clean[column] <= sensor_range['max'])
-                # Keep NaNs introduced by coerce for now, handle them later or let them be excluded by mask
                 df_clean = df_clean[mask | df_clean[column].isnull()] 
                 
-                removed_count = initial_count - len(df_clean[mask]) # Count only valid removals
+                removed_count = initial_count - len(df_clean[mask]) # 
                 validation_stats[column] = removed_count
                 
                 if removed_count > 0:
                     logger.warning(f"Removidos {removed_count} valores fora do range físico da coluna {column}")
         
-        # Optionally, handle NaNs more explicitly here, e.g., by imputation or removal
-        # For now, let them propagate; subsequent steps might handle them.
         return df_clean, validation_stats
     
     def detect_anomalies(self, df: pd.DataFrame, columns: List[str]) -> pd.DataFrame:
@@ -169,7 +158,7 @@ class DataValidator:
                 Q1 = df_clean[column].quantile(0.25)
                 Q3 = df_clean[column].quantile(0.75)
                 IQR = Q3 - Q1
-                if IQR == 0: # Avoid division by zero or issues with constant data
+                if IQR == 0: 
                     continue 
                 lower_bound = Q1 - 1.5 * IQR
                 upper_bound = Q3 + 1.5 * IQR
@@ -324,10 +313,8 @@ class SimpleGasForecaster:
 
         forecast_data = {}
         
-        if last_timestamp is None: # If no last timestamp provided, start from now
+        if last_timestamp is None: 
             last_timestamp = datetime.now()
-        
-        # Create future timestamps. Defaulting to Hourly if not inferable.
         freq_to_use = self.trained_on_index_freq if self.trained_on_index_freq else 'H'
         try:
             future_index = pd.date_range(start=last_timestamp + pd.Timedelta(hours=1 if freq_to_use=='H' else 0), periods=n_periods, freq=freq_to_use) # Adjust Timedelta based on freq
@@ -399,7 +386,7 @@ class DecisionTreePipeline:
 
         try:
             X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=self.config.get('test_size', 0.25), 
+                X, y, test_size=self.config.get('test_size', 0.30), 
                 random_state=self.config.get('random_state', 42),
                 stratify=stratify_y
             )
@@ -449,27 +436,6 @@ class DecisionTreePipeline:
         except Exception as e:
             logger.error(f"Erro durante a predição com Árvore de Decisão: {e}", exc_info=True)
             return None
-
-    def _plot_decision_tree(self):
-        if not self.model: return
-        try:
-            plt.figure(figsize=tuple(self.config.get('plot_figsize', [20,10]))) # Ensure tuple
-            plot_tree(
-                self.model,
-                feature_names=self.feature_columns,
-                class_names=self.class_names,
-                filled=True,
-                rounded=True,
-                fontsize=self.config.get('plot_fontsize', 10),
-                max_depth=self.config.get('plot_max_depth', 5) # Limit plot depth for readability
-            )
-            plot_path = self.config.get('plot_path', 'decision_tree.png')
-            plt.title("Árvore de Decisão - Qualidade do Ar (Plot Max Depth: 5)")
-            plt.savefig(plot_path, dpi=300, bbox_inches='tight')
-            plt.close()
-            logger.info(f"Gráfico da Árvore de Decisão salvo em: {plot_path}")
-        except Exception as e:
-            logger.warning(f"Erro ao salvar gráfico da Árvore de Decisão: {e}", exc_info=True)
 
 class SentinelaVerde:
     """Classe principal do sistema Sentinela Verde"""
@@ -555,9 +521,7 @@ class SentinelaVerde:
             logger.error(f"Erro na classificação por regras: {e}", exc_info=True)
         return False
 
-  # Adicione este código ao final do seu arquivo fixed_app.py
 
-# Completar o método process_models_and_forecasts()
     def process_models_and_forecasts(self) -> bool:
         if self.df_classified_rules is None:
             logger.error("Dados não classificados por regras. Execute classify_air_quality_rules primeiro.")
