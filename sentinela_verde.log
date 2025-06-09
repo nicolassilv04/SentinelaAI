@@ -1,42 +1,25 @@
-2025-05-29 19:29:00,818 - INFO - Criando arquivo de dados de exemplo: meus_dados_arduino.csv
-2025-05-29 19:29:00,834 - INFO - Arquivo de exemplo criado com 145 registros - distribuiÁ„o mais realista
-2025-05-29 19:29:00,837 - WARNING - Erro ao carregar configuraÁ„o de config.yaml: expected a single document in the stream
-  in "config.yaml", line 2, column 1
-but found another document
-  in "config.yaml", line 41, column 1. Usando configuraÁ„o padr„o.
-2025-05-29 19:29:00,837 - INFO - === INICIANDO AN¡LISE SENTINELA VERDE ===
-2025-05-29 19:29:00,862 - INFO - Arquivo 'meus_dados_arduino.csv' carregado: 145 registros
-2025-05-29 19:29:00,868 - INFO - Coluna 'Timestamp' processada como Ìndice temporal e ordenada.
-2025-05-29 19:29:00,874 - INFO - Detectados 3 outliers (IQR) em Amonia_ppm. Eles n„o s„o removidos por esta funÁ„o.
-2025-05-29 19:29:00,876 - INFO - Detectados 4 outliers (IQR) em Benzeno_ppm. Eles n„o s„o removidos por esta funÁ„o.
-2025-05-29 19:29:00,879 - INFO - Detectados 7 outliers (IQR) em Alcool_ppm. Eles n„o s„o removidos por esta funÁ„o.
-2025-05-29 19:29:00,881 - INFO - Detectados 1 outliers (IQR) em Dioxido_Carbono_ppm. Eles n„o s„o removidos por esta funÁ„o.
-2025-05-29 19:29:00,885 - INFO - Iniciando classificaÁ„o da qualidade do ar (baseada em regras)...
-2025-05-29 19:29:00,885 - INFO - Calculando qualidade do ar (regras) para: ['Amonia_ppm', 'Benzeno_ppm', 'Alcool_ppm', 'Dioxido_Carbono_ppm']
-2025-05-29 19:29:00,889 - INFO - DistribuiÁ„o da Qualidade do Ar (Regras):
-2025-05-29 19:29:00,890 - INFO -   Bom: 49.0%
-2025-05-29 19:29:00,890 - INFO -   Regular: 24.8%
-2025-05-29 19:29:00,891 - INFO -   Excelente: 15.2%
-2025-05-29 19:29:00,891 - INFO -   Ruim: 8.3%
-2025-05-29 19:29:00,891 - INFO -   Muito Ruim: 2.1%
-2025-05-29 19:29:00,891 - INFO -   CrÌtico: 0.7%
-2025-05-29 19:29:00,896 - INFO - Dados classificados (regras) salvos em: dados_arduino_classificados_regras.csv
-2025-05-29 19:29:00,902 - INFO - Iniciando treinamento da ¡rvore de Decis„o...
-2025-05-29 19:29:00,906 - WARNING - N„o È possÌvel usar estratificaÁ„o. Classes: 6, menor classe: 1 amostras
-2025-05-29 19:29:00,915 - INFO - ¡rvore de Decis„o treinada. Acur·cia no teste: 0.8919
-2025-05-29 19:29:01,931 - INFO - Gr·fico da ¡rvore de Decis„o salvo em: decision_tree_air_quality.png
-2025-05-29 19:29:01,932 - INFO - ¡rvore de Decis„o treinada com sucesso
-2025-05-29 19:29:01,945 - INFO - Treinando previsores simples de gases...
-2025-05-29 19:29:01,946 - INFO - FrequÍncia de dados inferida para treino do previsor: h
-2025-05-29 19:29:02,020 - INFO - Treinado modelo Exponential Smoothing para Amonia_ppm
-2025-05-29 19:29:02,073 - INFO - Treinado modelo Exponential Smoothing para Benzeno_ppm
-2025-05-29 19:29:02,122 - INFO - Treinado modelo Exponential Smoothing para Alcool_ppm
-2025-05-29 19:29:02,180 - INFO - Treinado modelo Exponential Smoothing para Dioxido_Carbono_ppm
-2025-05-29 19:29:02,181 - INFO - Modelos de previs„o de gases treinados
-2025-05-29 19:29:02,188 - INFO - Previsıes de gases geradas para 24 perÌodos
-2025-05-29 19:29:02,189 - INFO - Calculando qualidade do ar (regras) para: ['Amonia_ppm', 'Benzeno_ppm', 'Alcool_ppm', 'Dioxido_Carbono_ppm']
-2025-05-29 19:29:02,193 - INFO - DistribuiÁ„o da Qualidade do Ar (Regras):
-2025-05-29 19:29:02,193 - INFO -   Bom: 75.0%
-2025-05-29 19:29:02,194 - INFO -   Regular: 25.0%
-2025-05-29 19:29:02,195 - ERROR - Colunas de features ausentes nos dados de prediÁ„o. Esperado: ['Amonia_ppm', 'Benzeno_ppm', 'Alcool_ppm', 'Dioxido_Carbono_ppm', 'Temperatura_C', 'Umidade_Relativa_percent'], Ausentes: ['Temperatura_C', 'Umidade_Relativa_percent']
-2025-05-29 19:29:02,198 - INFO - === AN¡LISE CONCLUÕDA ===
+2025-06-08 21:30:26,888 - INFO - Configura√ß√£o carregada de config.yaml
+2025-06-08 21:30:26,891 - INFO - Assets path configured: C:\GitHub\SentinelaAI\assets
+2025-06-08 21:30:26,895 - INFO - Starting up TCP server on localhost:56295
+2025-06-08 21:30:26,907 - INFO - Flet app has started...
+2025-06-08 21:30:26,911 - INFO - App URL: tcp://localhost:56295
+2025-06-08 21:30:26,911 - INFO - Starting Flet View app...
+2025-06-08 21:30:26,913 - INFO - Looking for Flet executable at: C:\Users\nicol\AppData\Local\Programs\Python\Python313\Lib\site-packages\flet_desktop\app\flet\flet.exe
+2025-06-08 21:30:26,913 - INFO - Flet View found in: C:\Users\nicol\AppData\Local\Programs\Python\Python313\Lib\site-packages\flet_desktop\app\flet\flet.exe
+2025-06-08 21:30:27,306 - INFO - App session started
+2025-06-08 21:30:27,319 - INFO - --- INICIANDO CICLO DE AN√ÅLISE ---
+2025-06-08 21:30:27,320 - WARNING - Arquivo de dados 'meus_dados_arduino_historico.csv' n√£o encontrado. Criando um vazio.
+2025-06-08 21:30:27,336 - INFO - Arquivo de dados est√° vazio.
+2025-06-08 21:30:27,336 - WARNING - An√°lise abortada: n√£o foi poss√≠vel carregar dados ou o arquivo est√° vazio.
+2025-06-08 21:30:38,405 - ERROR - Exception in callback BaseEventLoop.run_in_executor()
+handle: <Handle BaseEventLoop.run_in_executor()>
+Traceback (most recent call last):
+  File "C:\Users\nicol\AppData\Local\Programs\Python\Python313\Lib\asyncio\events.py", line 89, in _run
+    self._context.run(self._callback, *self._args)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\nicol\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 901, in run_in_executor
+    executor.submit(func, *args), loop=self)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\nicol\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\thread.py", line 171, in submit
+    raise RuntimeError('cannot schedule new futures after shutdown')
+RuntimeError: cannot schedule new futures after shutdown
