@@ -12,6 +12,7 @@ import base64  # Para codificar imagens em texto e exibi-las no Flet
 import backend  # Importa todo o nosso código de lógica de negócio
 import time  # Para a pausa no loop de atualização automática
 import threading  # Para executar a atualização automática em segundo plano sem travar a UI
+from typing import Any
 
 # --- Verificação de Dependências Opcionais ---
 try:
@@ -89,35 +90,27 @@ def gerar_imagem_grafico_base64(page_theme_mode=ft.ThemeMode.LIGHT) -> str:
     # Codifica os bytes da imagem em base64 e retorna como string
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
-def atualizar_elementos_ui(page: ft.Page):
+def atualizar_elementos_ui(page: ft.Page, sentinela_instance: Any):
     """
-    Função central que busca os dados mais recentes do backend e atualiza todos
-    os elementos visuais na interface do usuário.
+    Função central que ATUALIZA a UI com os dados mais recentes do backend.
+    Ela não dispara mais a análise, apenas exibe os resultados.
     """
-    indicador_carregamento.visible = True
-    page.update() # Atualiza a UI para mostrar o indicador de carregamento
-
-    # 1. Roda a análise completa no backend. Isso carrega os dados mais recentes do CSV e reprocessa tudo.
-    sentinela.run_analysis()
-
-    # 2. Atualiza os valores dos cards de gases se houver dados
-    if sentinela.latest_reading_data is not None:
-        for nome_gas in nomes_gases_configurados:
-            if nome_gas in mapa_textos_valores_gases:
-                valor = sentinela.latest_reading_data.get(nome_gas, 0)
-                mapa_textos_valores_gases[nome_gas].value = f"{valor:.2f} ppm"
-
-        # 3. Atualiza os dados de ambiente (temperatura e umidade)
-        texto_umidade.value = f"Umidade: {sentinela.latest_reading_data.get('Umidade_Relativa_percent', 0):.1f}%"
-        texto_temperatura.value = f"Temperatura: {sentinela.latest_reading_data.get('Temperatura_C', 0):.1f}°C"
-
-        # 4. Atualiza o painel de qualidade do ar (texto e cor)
-        qualidade = sentinela.latest_reading_dt_classification or sentinela.latest_reading_rules_classification or "Indisponível"
+    if not page.session or not page.session.id: return # Não atualiza se a sessão do usuário foi encerrada
+    
+    # Atualiza os painéis com os dados mais recentes da instância do backend
+    if sentinela_instance.latest_reading_data is not None:
+        if 'Amonia_ppm' in mapa_textos_valores_gases:
+             mapa_textos_valores_gases['Amonia_ppm'].value = f"{sentinela_instance.latest_reading_data.get('Amonia_ppm', 0):.2f} ppm"
+        
+        texto_umidade.value = f"Umidade: {sentinela_instance.latest_reading_data.get('Umidade_Relativa_percent', 0):.1f}%"
+        texto_temperatura.value = f"Temperatura: {sentinela_instance.latest_reading_data.get('Temperatura_C', 0):.1f}°C"
+        
+        qualidade = sentinela_instance.latest_reading_dt_classification or sentinela_instance.latest_reading_rules_classification or "Indisponível"
         texto_qualidade_ar.value = qualidade
-        mapa_feedback = {'Excelente': ft.colors.GREEN, 'Bom': ft.colors.LIGHT_GREEN, 'Regular': ft.colors.AMBER, 'Ruim': ft.colors.ORANGE, 'Muito Ruim': ft.colors.RED, 'Crítico': ft.colors.PURPLE}
-        container_qualidade_ar.bgcolor = mapa_feedback.get(qualidade, ft.colors.BLUE_GREY)
-
-    # 5. Atualiza o gráfico de previsão
+        mapa_feedback = {'Excelente': ft.Colors.GREEN, 'Bom': ft.Colors.LIGHT_GREEN, 'Regular': ft.Colors.AMBER, 'Ruim': ft.Colors.ORANGE, 'Muito Ruim': ft.Colors.RED, 'Crítico': ft.Colors.PURPLE}
+        container_qualidade_ar.bgcolor = mapa_feedback.get(qualidade, ft.Colors.BLUE_GREY)
+    
+    # Atualiza o gráfico de previsão
     controle_imagem_plot.src_base64 = gerar_imagem_grafico_base64(page.theme_mode)
 
     indicador_carregamento.visible = False
@@ -168,21 +161,34 @@ def realtime_update_loop(page: ft.Page):
 # ==============================================================================
 # FUNÇÃO PRINCIPAL DA APLICAÇÃO FLET
 # ==============================================================================
-def main(page: ft.Page):
-    """Função principal que constrói e configura a interface gráfica."""
+def main(page: ft.Page, sentinela_instance: Any):
+    """
+    Função principal que constrói a interface gráfica.
+    Recebe a instância do backend.
+    """
     page.title = "Sentinela Verde Ambiental"
-    page.theme_mode = ft.ThemeMode.LIGHT
-    page.fonts = {"Consolas": "Consolas, 'Courier New', monospace"} # Fonte para relatórios
 
-    # --- Inicialização da Thread de Background ---
-    # Cria e inicia a thread que cuidará das atualizações automáticas
-    update_thread = threading.Thread(target=realtime_update_loop, args=(page,), daemon=True)
-    update_thread.start()
+    # Define a função de callback que o backend usará para atualizar a UI
+    def page_update_callback():
+        atualizar_elementos_ui(page, sentinela_instance)
+    
+    sentinela_instance.page_update_callback = page_update_callback
 
-    # Garante que a thread pare quando o usuário fechar a janela
-    def on_disconnect(e):
-        parar_thread_atualizacao.set()
-    page.on_disconnect = on_disconnect
+    # --- Construção da UI (Layout) ---
+    # Cria os cards dinamicamente com base na configuração
+    nomes_gases = ['Amonia_ppm'] # Apenas o gás que estamos medindo
+    cards_gases = []
+    for nome_gas in nomes_gases:
+        texto_valor = ft.Text("-- ppm", weight=ft.FontWeight.BOLD, size=20)
+        mapa_textos_valores_gases[nome_gas] = texto_valor
+        cards_gases.append(
+            ft.Card(content=ft.Container(
+                content=ft.Column([ft.Text(nome_gas.replace('_ppm', ''), weight=ft.FontWeight.BOLD), texto_valor]),
+                padding=15
+            ), expand=True)
+        )
+    
+    container_qualidade_ar.content = ft.Column([ft.Text("Qualidade do Ar"), texto_qualidade_ar])
 
     # --- Construção da Interface Gráfica (UI) ---
 
@@ -207,7 +213,7 @@ def main(page: ft.Page):
     container_qualidade_ar.border_radius = 10
 
     # Botão de atualização manual
-    botao_atualizar = ft.FilledButton("Atualizar Dados", icon=ft.icons.REFRESH, on_click=lambda e: atualizar_elementos_ui(page))
+    botao_atualizar = ft.FilledButton("Atualizar Dados", icon=ft.Icons.REFRESH, on_click=lambda e: atualizar_elementos_ui(page))
 
     # --- Layout das Abas ---
 
@@ -233,7 +239,7 @@ def main(page: ft.Page):
         ]),
         ft.Container(
             content=ft.Column([area_texto_relatorio, area_imagem_relatorio], scroll=ft.ScrollMode.ADAPTIVE, expand=True),
-            border=ft.border.all(1, ft.colors.outline),
+           # border=ft.Border.all(1, ft.Colors.outline),
             border_radius=10,
             padding=10,
             expand=True
@@ -252,6 +258,10 @@ def main(page: ft.Page):
 
     page.add(abas)
     atualizar_elementos_ui(page) # Faz uma carga inicial dos dados ao abrir o app
+        # Dispara uma análise inicial ao carregar
+    sentinela_instance.run_analysis()
+    atualizar_elementos_ui(page, sentinela_instance)
 
 # Ponto de entrada da aplicação Flet
 ft.app(target=main)
+

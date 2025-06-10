@@ -1,0 +1,9 @@
+flet
+pandas
+numpy
+PyYAML
+scikit-learn
+matplotlib
+statsmodels
+Pillow
+paho-mqtt

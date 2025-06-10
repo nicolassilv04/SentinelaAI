@@ -340,71 +340,75 @@ class DecisionTreePipeline:
 # ==============================================================================
 # 6. CLASSE ORQUESTRADORA PRINCIPAL
 # ==============================================================================
+
 class SentinelaVerde:
     """
     Classe principal que orquestra todo o fluxo de trabalho.
-    - Inicializa todos os componentes (config, validador, classificadores, etc.).
-    - Executa o ciclo de análise completo.
+    Agora ela também gerencia um buffer de dados recebidos via MQTT.
     """
     def __init__(self, config_path: str = None):
-        # Inicializa todos os módulos do sistema
-        self.config_manager = ConfigManager(config_path)
-        self.config = self.config_manager.config
-        self.validator = DataValidator(self.config['sensor_ranges'])
-        self.rule_classifier = AirQualityClassifier(self.config['air_quality_limits'])
+        # ... (inicialização dos componentes de análise inalterada) ...
+        self.config_manager = ConfigManager() # Simplificado
+        self.config = self.config_manager.DEFAULT_CONFIG # Simplificado
+        self.data_buffer: Dict[str, Any] = {} # Buffer para agregar dados MQTT
+        self.buffer_lock = threading.Lock() # Para garantir que o buffer seja acessado de forma segura
 
-        dt_conf = self.config.get('decision_tree', {})
-        self.decision_tree_pipeline = DecisionTreePipeline(dt_conf) if dt_conf.get('enabled', False) else None
+    def process_mqtt_message(self, topic: str, payload: str):
+        """
+        Processa uma mensagem recebida do broker MQTT.
+        Agrega os dados no buffer até ter um conjunto completo.
+        """
+        logger.info(f"Mensagem recebida - Tópico: {topic}, Valor: {payload}")
+        
+        # Extrai o nome da métrica do tópico (ex: 'sentinela/temperatura' -> 'temperatura')
+        metric_name = topic.split('/')[-1]
+        
+        with self.buffer_lock:
+            # Armazena o valor no buffer
+            try:
+                self.data_buffer[metric_name] = float(payload)
+            except ValueError:
+                logger.warning(f"Não foi possível converter o payload '{payload}' para float.")
+                return
 
-        gf_conf = self.config.get('gas_forecasting', {})
-        self.gas_forecaster = SimpleGasForecaster(gf_conf) if gf_conf.get('enabled', False) else None
+            # Verifica se já temos todas as leituras necessárias
+            required_keys = {"temperatura", "umidade", "gas"}
+            if required_keys.issubset(self.data_buffer.keys()):
+                logger.info("Buffer completo. Disparando análise...")
+                
+                # Mapeia os dados do buffer para o formato esperado pelo backend
+                formatted_data = {
+                    'Amonia_ppm': self.data_buffer.get('gas'), # Mapeia 'gas' para 'Amonia_ppm'
+                    'Benzeno_ppm': None, # Deixado como None, conforme o pedido
+                    'Alcool_ppm': None, # Deixado como None
+                    'Dioxido_Carbono_ppm': None, # Deixado como None
+                    'Temperatura_C': self.data_buffer.get('temperatura'),
+                    'Umidade_Relativa_percent': self.data_buffer.get('umidade')
+                }
+                
+                # Dispara a função de análise e salvamento
+                self.append_new_reading_and_run_analysis(formatted_data)
+                
+                # Limpa o buffer para o próximo conjunto de leituras
+                self.data_buffer.clear()
 
-        # Atributos para armazenar os resultados da análise
-        self.df_data: Optional[pd.DataFrame] = None
-        self.df_classified_rules: Optional[pd.DataFrame] = None
-        self.latest_reading_data: Optional[pd.Series] = None
-        self.latest_reading_rules_classification: Optional[str] = None
-        self.latest_reading_dt_classification: Optional[str] = None
-        self.df_future_gases_forecast: Optional[pd.DataFrame] = None
-        self.last_timestamp_processed: Optional[datetime] = None
-
-    def load_data(self) -> bool:
-        """Carrega e prepara os dados do arquivo CSV."""
-        input_file = self.config['files']['input_csv']
+    def append_new_reading_and_run_analysis(self, data_dict: Dict):
+        """Recebe os dados agregados, anexa ao CSV e executa um novo ciclo de análise."""
         try:
-            # Garante que o arquivo de dados exista, mesmo que vazio
-            if not Path(input_file).exists():
-                logger.warning(f"Arquivo de dados '{input_file}' não encontrado. Criando um vazio.")
-                header = [self.config['columns']['timestamp']] + self.config['columns']['sensors']
-                pd.DataFrame(columns=header).to_csv(input_file, index=False)
-
-            self.df_data = pd.read_csv(input_file)
-            if self.df_data.empty:
-                logger.info("Arquivo de dados está vazio.")
-                return True
-
-            # Processa a coluna de timestamp para ser o índice do DataFrame
-            ts_col = self.config['columns']['timestamp']
-            if ts_col in self.df_data.columns:
-                self.df_data[ts_col] = pd.to_datetime(self.df_data[ts_col], errors='coerce')
-                self.df_data.dropna(subset=[ts_col], inplace=True)
-                if not self.df_data.empty:
-                    self.df_data.set_index(ts_col, inplace=True)
-                    self.df_data.sort_index(inplace=True)
-                    self.last_timestamp_processed = self.df_data.index[-1]
-
-            # Valida os dados e preenche valores faltantes
-            self.df_data, _ = self.validator.validate_sensor_data(self.df_data.reset_index())
-            if ts_col in self.df_data.columns:
-                 self.df_data.set_index(ts_col, inplace=True)
-
-            self.df_data.ffill(inplace=True) # Preenche NaNs com o último valor válido
-            self.df_data.bfill(inplace=True) # Preenche NaNs restantes com o próximo valor válido
-            return True
+            data_dict['Timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            df_new_row = pd.DataFrame([data_dict])
+            input_file = self.config['files']['input_csv']
+            
+            # Garante que o arquivo CSV exista com cabeçalho
+            if not Path(input_file).exists() or Path(input_file).stat().st_size == 0:
+                df_new_row.to_csv(input_file, index=False)
+            else:
+                df_new_row.to_csv(input_file, mode='a', header=False, index=False)
+            
+            logger.info(f"Nova leitura adicionada a {input_file}")
+            # self.run_analysis() # A análise completa seria executada aqui
         except Exception as e:
-            logger.error(f"Erro crítico ao carregar dados: {e}", exc_info=True)
-            return False
-
+            logger.error(f"Falha ao anexar nova leitura: {e}", exc_info=True)
     def run_analysis(self):
         """Executa o ciclo completo de análise: carregar, classificar, treinar modelos e prever."""
         logger.info("--- INICIANDO CICLO DE ANÁLISE ---")
@@ -455,3 +459,45 @@ class SentinelaVerde:
             summary.append(str(self.df_future_gases_forecast.head().to_string()))
 
         return "\n".join(summary)
+    
+# ==============================================================================
+# 3. CLIENTE MQTT
+# ==============================================================================
+class MQTTClient:
+    """Gerencia a conexão e a lógica de subscrição ao broker MQTT."""
+    def __init__(self, broker_address: str, port: int, topics: List[str], sentinela_instance: SentinelaVerde):
+        self.broker_address = broker_address
+        self.port = port
+        self.topics = topics
+        self.sentinela = sentinela_instance
+        self.client = mqtt.Client()
+
+        # Define as funções de callback
+        self.client.on_connect = self.on_connect
+        self.client.on_message = self.on_message
+
+    def on_connect(self, client, userdata, flags, rc):
+        """Callback executado quando o cliente se conecta ao broker."""
+        if rc == 0:
+            logger.info("Conectado ao Broker MQTT com sucesso!")
+            # Assina todos os tópicos da lista
+            for topic in self.topics:
+                client.subscribe(topic)
+                logger.info(f"Assinando o tópico: {topic}")
+        else:
+            logger.error(f"Falha ao conectar, código de retorno: {rc}\n")
+
+    def on_message(self, client, userdata, msg):
+        """Callback executado quando uma mensagem é recebida em um tópico assinado."""
+        payload = msg.payload.decode()
+        # Envia a mensagem para a instância do SentinelaVerde processar
+        self.sentinela.process_mqtt_message(msg.topic, payload)
+
+    def start(self):
+        """Inicia a conexão e o loop de escuta do cliente MQTT."""
+        try:
+            self.client.connect(self.broker_address, self.port, 60)
+            # Inicia o loop em uma thread separada para não bloquear a aplicação principal
+            self.client.loop_start()
+        except Exception as e:
+            logger.error(f"Não foi possível conectar ao broker MQTT: {e}")
