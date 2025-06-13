@@ -1,9 +1,9 @@
-flet
-pandas
-numpy
-PyYAML
-scikit-learn
-matplotlib
-statsmodels
-Pillow
-paho-mqtt
+flet             # Para a interface gráfica
+pandas           # Para manipulação de dados (DataFrames)
+numpy            # Para operações numéricas
+paho-mqtt        # Para a comunicação com o sensor via MQTT
+scikit-learn     # Para os modelos de Machine Learning (Árvore de Decisão)
+statsmodels      # Para os modelos de previsão de séries temporais
+matplotlib       # Para a geração de gráficos
+requests         # Para buscar os dados da API externa
+PyYAML           # Para ler o arquivo de configuração config.yaml
