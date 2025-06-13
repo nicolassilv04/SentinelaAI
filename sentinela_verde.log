@@ -1,25 +1,8 @@
-2025-06-08 21:30:26,888 - INFO - Configuração carregada de config.yaml
-2025-06-08 21:30:26,891 - INFO - Assets path configured: C:\GitHub\SentinelaAI\assets
-2025-06-08 21:30:26,895 - INFO - Starting up TCP server on localhost:56295
-2025-06-08 21:30:26,907 - INFO - Flet app has started...
-2025-06-08 21:30:26,911 - INFO - App URL: tcp://localhost:56295
-2025-06-08 21:30:26,911 - INFO - Starting Flet View app...
-2025-06-08 21:30:26,913 - INFO - Looking for Flet executable at: C:\Users\nicol\AppData\Local\Programs\Python\Python313\Lib\site-packages\flet_desktop\app\flet\flet.exe
-2025-06-08 21:30:26,913 - INFO - Flet View found in: C:\Users\nicol\AppData\Local\Programs\Python\Python313\Lib\site-packages\flet_desktop\app\flet\flet.exe
-2025-06-08 21:30:27,306 - INFO - App session started
-2025-06-08 21:30:27,319 - INFO - --- INICIANDO CICLO DE ANÁLISE ---
-2025-06-08 21:30:27,320 - WARNING - Arquivo de dados 'meus_dados_arduino_historico.csv' não encontrado. Criando um vazio.
-2025-06-08 21:30:27,336 - INFO - Arquivo de dados está vazio.
-2025-06-08 21:30:27,336 - WARNING - Análise abortada: não foi possível carregar dados ou o arquivo está vazio.
-2025-06-08 21:30:38,405 - ERROR - Exception in callback BaseEventLoop.run_in_executor()
-handle: <Handle BaseEventLoop.run_in_executor()>
-Traceback (most recent call last):
-  File "C:\Users\nicol\AppData\Local\Programs\Python\Python313\Lib\asyncio\events.py", line 89, in _run
-    self._context.run(self._callback, *self._args)
-    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "C:\Users\nicol\AppData\Local\Programs\Python\Python313\Lib\asyncio\base_events.py", line 901, in run_in_executor
-    executor.submit(func, *args), loop=self)
-    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^
-  File "C:\Users\nicol\AppData\Local\Programs\Python\Python313\Lib\concurrent\futures\thread.py", line 171, in submit
-    raise RuntimeError('cannot schedule new futures after shutdown')
-RuntimeError: cannot schedule new futures after shutdown
+2025-06-13 10:14:15,292 - [INFO] - (ThreadPoolExecutor-0_0) - Iniciando a aplicação Sentinela Verde.
+2025-06-13 10:14:15,294 - [INFO] - (ThreadPoolExecutor-0_0) - Instância do SentinelaVerde criada.
+2025-06-13 10:14:15,295 - [INFO] - (MQTTThread) - Thread do cliente MQTT iniciada.
+2025-06-13 10:14:15,328 - [WARNING] - (ThreadPoolExecutor-0_0) - IA - Árvore de Decisão: Dados insuficientes para o treinamento.
+2025-06-13 10:14:15,329 - [WARNING] - (ThreadPoolExecutor-0_0) - IA - Previsão: Nenhum modelo de previsão foi treinado.
+2025-06-13 10:14:15,330 - [INFO] - (ThreadPoolExecutor-0_0) - Análise concluída. Qualidade do ar atual: IA não treinada
+2025-06-13 10:14:16,034 - [INFO] - (paho-mqtt-client-) - Conectado ao MQTT e assinando o tópico: 'sentinela/dados_csv'
+2025-06-13 10:14:17,223 - [INFO] - (paho-mqtt-client-) - Dados salvos em dados_historicos_unificados.csv.

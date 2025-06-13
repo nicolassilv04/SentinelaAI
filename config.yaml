@@ -1,29 +1,47 @@
----
+# Arquivo de Configuração para o Projeto Sentinela Verde
+# ----------------------------------------------------
+# Edite os valores abaixo para configurar a aplicação.
+
+# Configurações do Broker MQTT
+mqtt:
+  broker_address: "test.mosquitto.org"
+  port: 1883
+  topic: "sentinela/dados_csv"
+
+# Configurações da API de Qualidade do Ar (WAQI)
+api:
+  # Obtenha uma chave gratuita em: https://aqicn.org/data-platform/token/
+  token: "845535b9a4be3918e97e326f4c550afad64b21d5" 
+  city: "rio claro"
+  # Intervalo em segundos para buscar novos dados da API (900s = 15 minutos)
+  interval_seconds: 900
+
+# Configurações de arquivos e logs
 files:
-  output_classified_csv: "dados_arduino_classificados.csv" 
-  config_file: "config.yaml"
+  unified_csv: "dados_historicos_unificados.csv"
+  log_file: "sentinela_verde.log"
 
-columns:
-  sensors:
-    - "Amonia_ppm"
-    - "Benzeno_ppm"
-    - "Alcool_ppm" 
-    - "Dioxido_Carbono_ppm"
-    - "Temperatura_C"
-    - "Umidade_Relativa_percent"
-  timestamp: "Timestamp"
+# Parâmetros para os modelos de Machine Learning
+models:
+  decision_tree:
+    feature_columns: 
+      - 'Concentracao_Geral_PPM'
+      - 'PM2.5_ug_m3'
+      - 'PM10_ug_m3'
+      - 'Temperatura_C'
+      - 'Umidade_Relativa_percent'
+    target_column: 'Qualidade_Ar_Calculada'
+  
+  forecasting:
+    target_columns:
+      - 'Concentracao_Geral_PPM'
+      - 'PM2.5_ug_m3'
+      - 'PM10_ug_m3'
+    prediction_horizon_hours: 24
 
+# Limites para classificação da qualidade do ar (usado para criar o alvo do modelo)
 air_quality_limits:
-  Amonia_ppm: 0.1
-  Benzeno_ppm: 0.002
-  Alcool_ppm: 0.5
-  Dioxido_Carbono_ppm: 1000
-
-sensor_ranges:
-  Amonia_ppm: {min: 0, max: 50}
-  Benzeno_ppm: {min: 0, max: 10}
-  Alcool_ppm: {min: 0, max: 100}
-  Dioxido_Carbono_ppm: {min: 0, max: 5000}
-  Temperatura_C: {min: -40, max: 85}
-  Umidade_Relativa_percent: {min: 0, max: 100}
+  Concentracao_Geral_PPM: 300.0
+  PM2.5_ug_m3: 25.0
+  PM10_ug_m3: 50.0
 
