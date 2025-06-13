@@ -1,4 +1,4 @@
-,3/**
+/**
  * @file arduino_sentinela_verde.ino
  * @author Nicolas
  * @brief Código para ESP32 do projeto Sentinela Verde.
