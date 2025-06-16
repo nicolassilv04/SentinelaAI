@@ -8,6 +8,7 @@ import os
 import logging
 from pathlib import Path
 
+
 # A configuração de logging agora será feita pelo backend.
 
 def fetch_air_quality_data(cidade: str, token: str) -> dict:
@@ -18,7 +19,7 @@ def fetch_air_quality_data(cidade: str, token: str) -> dict:
     url = f"https://api.waqi.info/feed/{cidade}/?token={token}"
 
     try:
-        response = requests.get(url, timeout=15)
+        response = requests.get(url, timeout=1)
         response.raise_for_status()
         data = response.json()
 
@@ -37,7 +38,7 @@ def fetch_air_quality_data(cidade: str, token: str) -> dict:
             logging.info(f"Dados da API externa recebidos com sucesso: {dados_validos}")
         else:
             logging.warning("A API não retornou dados de PM2.5 ou PM10 para a cidade.")
-            
+
         return dados_validos
 
     except requests.exceptions.RequestException as e:

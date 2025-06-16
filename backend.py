@@ -1,4 +1,4 @@
-# backend.py (versão completa com IA funcional e leitura do config.yaml)
+# backend.py (versão corrigida para garantir a integridade do CSV e robustez da previsão)
 # -*- coding: utf-8 -*
 
 import pandas as pd
@@ -16,7 +16,7 @@ import yaml
 
 # Módulos do projeto e de terceiros
 import api_client
-from sklearn.tree import DecisionTreeClassifier, plot_tree
+from sklearn.tree import DecisionTreeClassifier
 from sklearn.preprocessing import LabelEncoder
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 import matplotlib.pyplot as plt
@@ -39,10 +39,9 @@ class DecisionTreePipeline:
         features_cols = self.config['feature_columns']
         target_col = self.config['target_column']
         
-        # Garante que as colunas necessárias existem e remove linhas com dados faltantes para o treino
         df_train = df[features_cols + [target_col]].dropna()
 
-        if len(df_train) < 20: # Mínimo de 20 pontos de dados para treinar
+        if len(df_train) < 20:
             logger.warning("IA - Árvore de Decisão: Dados insuficientes para o treinamento.")
             self.is_trained = False
             return False
@@ -71,30 +70,48 @@ class Forecaster:
         self.is_trained = False
 
     def train(self, df: pd.DataFrame):
-        """Treina um modelo para cada coluna alvo definida no config."""
+        """Treina um modelo para cada coluna alvo, com fallback para modelo não-sazonal."""
         target_cols = self.config['target_columns']
         trained_models = 0
         for col in target_cols:
             series = df[col].dropna()
-            if len(series) > 10: # Mínimo de 20 pontos de dados
+            if len(series) > 10:
                 try:
-                    # Modelo Holt-Winters para capturar tendência e sazonalidade
+                    # --- INÍCIO DA CORREÇÃO ---
+                    # Tenta primeiro o modelo completo com sazonalidade
                     model = ExponentialSmoothing(
                         series, 
                         trend='add', 
                         seasonal='add', 
-                        seasonal_periods=1 # Assumindo um ciclo diário com dados horários
+                        seasonal_periods=12
                     ).fit()
                     self.models[col] = model
                     trained_models += 1
+                    logger.info(f"IA - Previsão: Modelo SAZONAL treinado para '{col}'.")
+                except ValueError:
+                    # Se falhar (ex: por falta de dados), tenta um modelo mais simples sem sazonalidade
+                    logger.warning(f"IA - Previsão: Modelo sazonal falhou para '{col}'. Tentando modelo não-sazonal mais simples.")
+                    try:
+                        model = ExponentialSmoothing(
+                            series, 
+                            trend='add', 
+                            seasonal=None # Remove a sazonalidade
+                        ).fit()
+                        self.models[col] = model
+                        trained_models += 1
+                        logger.info(f"IA - Previsão: Modelo NÃO-SAZONAL treinado para '{col}'.")
+                    except Exception as e_simple:
+                        logger.error(f"IA - Previsão: Falha ao treinar até mesmo o modelo simples para '{col}'. Erro: {e_simple}")
                 except Exception as e:
-                    logger.warning(f"IA - Previsão: Não foi possível treinar o modelo para '{col}'. Erro: {e}")
+                    logger.error(f"IA - Previsão: Erro inesperado ao treinar modelo para '{col}'. Erro: {e}")
+                    # --- FIM DA CORREÇÃO ---
         
         if trained_models > 0:
             self.is_trained = True
             logger.info(f"IA - Previsão: {trained_models} modelo(s) de série temporal treinado(s).")
         else:
             logger.warning("IA - Previsão: Nenhum modelo de previsão foi treinado.")
+
 
     def forecast(self) -> Optional[pd.DataFrame]:
         """Gera previsões para o horizonte definido."""
@@ -103,9 +120,15 @@ class Forecaster:
         
         horizon = self.config['prediction_horizon_hours']
         forecast_data = {}
+        # Adiciona um timestamp inicial para o índice da previsão
+        last_known_timestamp = self.models[next(iter(self.models))].series.index[-1]
+        forecast_index = pd.date_range(start=last_known_timestamp, periods=horizon + 1, freq='H')[1:]
+
         for col, model in self.models.items():
-            forecast_data[col] = model.forecast(horizon)
-        
+            forecast_values = model.forecast(horizon)
+            # Garante que os valores tenham o índice correto
+            forecast_data[col] = pd.Series(forecast_values, index=forecast_index)
+
         return pd.DataFrame(forecast_data)
 
 class SentinelaVerde:
@@ -120,20 +143,30 @@ class SentinelaVerde:
         self.future_forecast: Optional[pd.DataFrame] = None
         self.last_timestamp: Optional[datetime] = None
         self.page_update_callback: Optional[Callable[[], None]] = None
-        self.start_api_scheduler()
+        # O agendador da API agora é iniciado pelo main_app para garantir que o loop de eventos Flet esteja rodando
+        # self.start_api_scheduler() # REMOVIDO DAQUI
 
     def start_api_scheduler(self):
-        interval = self.config['api']['interval_seconds']
-        threading.Timer(interval, self.fetch_api_data_and_merge).start()
+        """Inicia um agendador em background para buscar dados da API."""
+        def run_scheduler():
+            interval = self.config['api']['interval_seconds']
+            while True:
+                self.fetch_api_data_and_merge()
+                time.sleep(interval)
+        
+        scheduler_thread = threading.Thread(target=run_scheduler, daemon=True, name="APIScheduler")
+        scheduler_thread.start()
+
 
     def fetch_api_data_and_merge(self):
+        """Busca dados da API e os salva."""
         try:
             api_conf = self.config['api']
             api_data = api_client.fetch_air_quality_data(api_conf['city'], api_conf['token'])
             if api_data:
                 self.save_data_to_csv(api_data)
-        finally:
-            self.start_api_scheduler()
+        except Exception as e:
+            logger.error(f"Erro no agendador da API: {e}")
 
     def process_mqtt_message(self, topic: str, payload: str):
         try:
@@ -145,56 +178,76 @@ class SentinelaVerde:
                 'Concentracao_Geral_PPM': float(parts[2]),
             }
             self.save_data_to_csv(sensor_data)
-        except (ValueError, IndexError):
-            pass
+        except (ValueError, IndexError) as e:
+            logger.error(f"Erro ao processar mensagem MQTT: {e}. Payload: '{payload}'")
 
     def save_data_to_csv(self, data_dict: Dict[str, Any]):
+        """Salva um novo dicionário de dados no CSV, garantindo a ordem das colunas."""
         with self.lock:
             filepath = Path(self.config['files']['unified_csv'])
-            df_historico = pd.read_csv(filepath) if filepath.exists() else pd.DataFrame()
+            
+            df_historico = pd.read_csv(filepath) if filepath.exists() and filepath.stat().st_size > 0 else pd.DataFrame()
+
             data_dict['Timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             df_new_row = pd.DataFrame([data_dict])
+
             df_final = pd.concat([df_historico, df_new_row], ignore_index=True)
+            
+            canonical_columns = ['Timestamp'] + self.config['models']['decision_tree']['feature_columns']
             df_final['Timestamp'] = pd.to_datetime(df_final['Timestamp'])
-            df_final = df_final.sort_values(by='Timestamp').drop_duplicates(subset=['Timestamp'], keep='last')
-            df_final.to_csv(filepath, index=False)
-            logger.info(f"Dados salvos em {filepath}.")
+            
+            # Remove linhas duplicadas com base no timestamp, mantendo a última ocorrência
+            df_final.drop_duplicates(subset=['Timestamp'], keep='last', inplace=True)
+            df_final.sort_values(by='Timestamp', inplace=True)
+            
+            df_to_save = df_final.reindex(columns=canonical_columns)
+            
+            df_to_save.to_csv(filepath, index=False)
+            
+            logger.info(f"Dados salvos em {filepath}. Nova linha: {data_dict}")
             self.run_analysis()
+
 
     def load_data(self) -> bool:
         with self.lock:
             filepath = Path(self.config['files']['unified_csv'])
             if not filepath.exists() or filepath.stat().st_size < 10: return False
+            
+            # Define a frequência dos dados como horária ('H')
             self.df_data = pd.read_csv(filepath, parse_dates=['Timestamp'], index_col='Timestamp')
-            # Interpolar para preencher lacunas e garantir que a análise funcione
+            if self.df_data.empty: return False
+            
+            self.df_data = self.df_data.asfreq('H') # Força uma frequência horária
+
             all_cols = self.config['models']['decision_tree']['feature_columns']
             for col in all_cols:
                 if col not in self.df_data.columns: self.df_data[col] = np.nan
-            self.df_data[all_cols] = self.df_data[all_cols].interpolate(method='time').ffill().bfill()
+            
+            self.df_data[all_cols] = self.df_data[all_cols].interpolate(method='linear').ffill().bfill()
+            
+            if self.df_data.empty: return False
             self.last_timestamp = self.df_data.index[-1].to_pydatetime()
             return True
 
     def run_analysis(self):
         if not self.load_data():
-            logger.warning("Análise abortada: dados insuficientes.")
+            logger.warning("Análise abortada: dados insuficientes ou arquivo vazio.")
             return
 
-        # 1. Criar o alvo para a classificação (ex: Bom, Ruim)
         df_copy = self.df_data.copy()
         limit = self.config['air_quality_limits']['Concentracao_Geral_PPM']
         df_copy['Qualidade_Ar_Calculada'] = np.where(df_copy['Concentracao_Geral_PPM'] > limit, 'Ruim', 'Bom')
 
-        # 2. Treinar os modelos de IA
         self.decision_tree.train(df_copy)
         self.forecaster.train(df_copy)
 
-        # 3. Fazer a predição e previsão com os modelos treinados
         latest_features = df_copy[self.config['models']['decision_tree']['feature_columns']].iloc[-1:]
         self.latest_classification = self.decision_tree.predict(latest_features)
         self.future_forecast = self.forecaster.forecast()
         
         logger.info(f"Análise concluída. Qualidade do ar atual: {self.latest_classification}")
-        if self.page_update_callback: self.page_update_callback()
+        if self.page_update_callback: 
+            self.page_update_callback()
 
     def get_latest_data_summary(self) -> Dict[str, Any]:
         if self.df_data is None or self.df_data.empty: return {}

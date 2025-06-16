@@ -1,8 +1,8 @@
-2025-06-13 10:14:15,292 - [INFO] - (ThreadPoolExecutor-0_0) - Iniciando a aplicação Sentinela Verde.
-2025-06-13 10:14:15,294 - [INFO] - (ThreadPoolExecutor-0_0) - Instância do SentinelaVerde criada.
-2025-06-13 10:14:15,295 - [INFO] - (MQTTThread) - Thread do cliente MQTT iniciada.
-2025-06-13 10:14:15,328 - [WARNING] - (ThreadPoolExecutor-0_0) - IA - Árvore de Decisão: Dados insuficientes para o treinamento.
-2025-06-13 10:14:15,329 - [WARNING] - (ThreadPoolExecutor-0_0) - IA - Previsão: Nenhum modelo de previsão foi treinado.
-2025-06-13 10:14:15,330 - [INFO] - (ThreadPoolExecutor-0_0) - Análise concluída. Qualidade do ar atual: IA não treinada
-2025-06-13 10:14:16,034 - [INFO] - (paho-mqtt-client-) - Conectado ao MQTT e assinando o tópico: 'sentinela/dados_csv'
-2025-06-13 10:14:17,223 - [INFO] - (paho-mqtt-client-) - Dados salvos em dados_historicos_unificados.csv.
+2025-06-13 12:20:32,867 - [INFO] - (ThreadPoolExecutor-0_0) - Iniciando a aplicação Sentinela Verde.
+2025-06-13 12:20:32,868 - [INFO] - (ThreadPoolExecutor-0_0) - Instância do SentinelaVerde criada.
+2025-06-13 12:20:32,870 - [INFO] - (MQTTThread) - Thread do cliente MQTT iniciada.
+2025-06-13 12:20:32,919 - [WARNING] - (ThreadPoolExecutor-0_0) - IA - Árvore de Decisão: Dados insuficientes para o treinamento.
+2025-06-13 12:20:32,920 - [WARNING] - (ThreadPoolExecutor-0_0) - IA - Previsão: Nenhum modelo de previsão foi treinado.
+2025-06-13 12:20:32,922 - [INFO] - (ThreadPoolExecutor-0_0) - Análise concluída. Qualidade do ar atual: IA não treinada
+2025-06-13 12:20:35,569 - [INFO] - (paho-mqtt-client-) - Conectado ao MQTT e assinando o tópico: 'sentinela/dados_csv'
+2025-06-13 12:20:37,599 - [INFO] - (paho-mqtt-client-) - Dados salvos em dados_historicos_unificados.csv. Nova linha: {'Temperatura_C': 26.8, 'Umidade_Relativa_percent': 47.0, 'Concentracao_Geral_PPM': 10.0, 'Timestamp': '2025-06-13 12:20:37'}
