@@ -1,129 +1,134 @@
-# 🌳 Sentinela Verde - Monitoramento Preditivo da Qualidade do Ar
-O Sentinela Verde é um sistema completo para monitoramento, análise e previsão da qualidade do ar em tempo real, utilizando Python, Machine Learning e um dashboard interativo. Ele transforma dados brutos de sensores de baixo custo em insights acionáveis para a vigilância proativa da saúde ambiental.
+# 🌳 Sentinela Verde
+O Sentinela Verde é um sistema completo de monitoramento da qualidade do ar que utiliza sensores de hardware (ESP32), comunicação via MQTT e inteligência artificial para coletar, processar, analisar e visualizar dados ambientais em tempo real.<br>
 
-## 🎯 Principais Funcionalidades
-Monitoramento em Tempo Real: Acompanhe as medições de gases (Amônia, Benzeno, Álcool, CO₂), temperatura e umidade com atualização automática.
-
-### Classificação Híbrida:
-
-- Baseada em Regras: Utiliza limites de saúde (inspirados na NR-15) para uma classificação imediata e transparente da qualidade do ar.
-
-- Baseada em IA: Emprega um modelo de Árvore de Decisão que aprende os padrões dos dados para fornecer uma classificação inteligente.
-<br>
+O sistema é composto por um backend robusto em Python que gerencia os dados e os modelos de Machine Learning, e uma interface gráfica de desktop moderna e reativa construída com Flet, permitindo uma análise detalhada e preditiva das condições do ar.<br>
 
 
+### ✨ Funcionalidades Principais
 
-Previsão do Futuro (Forecasting): Utiliza modelos de séries temporais (Exponential Smoothing) para prever as concentrações de gases nas próximas 24 horas, permitindo ações preventivas.
+- Coleta de Dados em Tempo Real: Recebe dados de temperatura, umidade e concentração de gases enviados por um microcontrolador (como um ESP32) via protocolo MQTT.
 
-Dashboard Interativo: Uma interface gráfica construída com Flet para visualizar dados, gráficos e relatórios de forma clara e intuitiva.
+- Simulador de Dados para Testes: Inclui um gerador de dados para uso caseiro, perfeito para testar a aplicação sem a necessidade do hardware físico (Arduino/ESP32).
 
-Sistema Configurável: Todos os parâmetros importantes, como limites de gases e caminhos de arquivos, podem ser ajustados no arquivo ````config.yaml```` sem a necessidade de alterar o código.
+- Integração com API Externa: Enriquece os dados locais com informações de poluentes (PM2.5, PM10) da API pública World Air Quality Index (WAQI).
 
-## ⚙️ Como Funciona (Arquitetura)
-O sistema é dividido em três camadas principais:
+- Classificação com IA: Utiliza um modelo de Árvore de Decisão para classificar a qualidade do ar local com base nos dados combinados dos sensores.
 
-### Coleta de Dados (Hardware):
+- Previsão Futura: Emprega um modelo de série temporal (Holt-Winters) para prever os níveis de poluentes nas próximas 24 horas.
 
-Um microcontrolador Arduino com um sensor de qualidade do ar MQ-135 e um sensor de ambiente DHT11/22 coleta os dados brutos.
+- Dashboard Interativo: Uma interface gráfica construída com Flet exibe os dados atuais, a classificação da IA, a previsão futura e gráficos de tendência.
 
-Os dados são enviados via serial para um computador e armazenados em um arquivo ````meus_dados_arduino_historico.csv````, que funciona como o banco de dados histórico do projeto.
+- Relatórios e Recomendações: Gera resumos de dados e oferece recomendações de saúde com base na qualidade do ar detectada.
 
-### Processamento e Inteligência (Backend - ````backend.py````):
+- Altamente Configurável: Todas as configurações, como chaves de API, tópicos MQTT e parâmetros de modelo, são gerenciadas em um único arquivo ````config.yaml.````
 
-Este é o cérebro do sistema, escrito em Python.
+- Logging Completo: Registra todos os eventos importantes, desde a conexão MQTT até o treinamento dos modelos, em um arquivo de log para fácil depuração.
 
-Ele carrega os dados do CSV, valida as leituras para garantir que estejam dentro dos limites operacionais do sensor, e aplica as técnicas de classificação e previsão.
 
-Orquestra os modelos de Machine Learning e estatística.
+### 🏛️ Estrutura do Projeto
+O projeto é modularizado para separar as responsabilidades, facilitando a manutenção e a escalabilidade.
 
-### Visualização (Frontend - ````frontend.py````):
+````/
+├── main_app.py               # Ponto de entrada principal da aplicação Flet.
+├── frontend.py               # Define toda a interface gráfica e seus componentes.
+├── backend.py                # Contém a lógica de negócio, processamento e os modelos de IA.
+├── gerador_de_dados.py       # Script para simular o envio de dados do sensor via MQTT.
+├── api_client.py             # Módulo para se comunicar com a API externa do WAQI.
+├── config.yaml               # Arquivo central para todas as configurações do projeto.
+└── sentinela_arduino.txt     # (Referência) Código para o microcontrolador ESP32.
+````
 
-A interface gráfica do usuário, construída com o framework Flet.
+### 🛠️ Como Executar o Projeto
+Siga os passos abaixo para configurar e executar o Sentinela Verde em seu ambiente local.
 
-Comunica-se com o backend para solicitar análises e exibe os resultados de forma amigável, com gráficos e painéis que são atualizados em tempo real.
+#### 1. Pré-requisitos
+Python 3.8+
 
-## 🛠️ Tecnologias Utilizadas
-- Backend: Python 3
+Hardware (Opcional):
 
-- Frontend: Flet
+ESP32
 
-- Análise de Dados: Pandas, NumPy
+Sensor de Temperatura e Umidade (DHT11)
 
-- Machine Learning: Scikit-learn (para a Árvore de Decisão)
+Sensor de Qualidade do Ar (MQ-135)
 
-- Previsão de Séries Temporais: Statsmodels
+Arduino IDE (se for usar o hardware) com as seguintes bibliotecas:
 
-- Visualização de Dados (Gráficos): Matplotlib
+````DHT sensor library```` by Adafruit
 
-- Configuração: PyYAML
+````Adafruit Unified Sensor```` by Adafruit
 
-## 📁 Estrutura do Projeto
-```
-/
-├── backend.py                  # Script principal da lógica e análise de dados.
-├── frontend4.py                # Script da interface gráfica do usuário (dashboard).
-├── config.yaml                 # Arquivo de configuração para todos os parâmetros.
-├── requirements.txt            # Lista de dependências Python para instalação.
-├── meus_dados_arduino_historico.csv  # Banco de dados histórico com as leituras.
-├── decision_tree_air_quality.png # Imagem da árvore de decisão gerada pela IA.
-└── sentinela_verde.log         # Arquivo de log para registro de eventos e erros.
-```
+````PubSubClient```` by Nick O'Leary
 
-## 🚀 Instalação e Execução
-Siga os passos abaixo para configurar e executar o projeto em seu ambiente local.
+#### 2. Instalação
+a. Clone o repositório:
+````
+git clone https://github.com/SEU-USUARIO/SEU-REPOSITORIO.git
+cd SEU-REPOSITORIO
+````
 
-### 1. Pré-requisitos
-Python 3.9 ou superior.
-
-### 2. Clone o Repositório
-```
-git clone https://github.com/seu-usuario/sentinela-verde.git
-cd sentinela-verde
-```
-
-### 3. Crie um Ambiente Virtual
-É uma boa prática usar um ambiente virtual para isolar as dependências do projeto.
-
-Windows:
-```
+b. Crie um ambiente virtual e instale as dependências:
+````
+# Crie um ambiente virtual (recomendado)
 python -m venv venv
-venv\Scripts\activate
-```
-macOS / Linux:
-````
-python3 -m venv venv
+# Ative o ambiente (Windows)
+.\venv\Scripts\activate
+# Ative o ambiente (macOS/Linux)
 source venv/bin/activate
-````
 
-### 4. Instale as Dependências
-Crie um arquivo chamado ````requirements.txt```` com o seguinte conteúdo:
+# Instale as bibliotecas necessárias
+pip install flet pandas paho-mqtt PyYAML scikit-learn statsmodels matplotlib requests
 ````
-pandas
-numpy
-PyYAML
-scikit-learn
-matplotlib
-statsmodels
-flet
-Pillow
-````
-Em seguida, instale todas as bibliotecas de uma vez com o pip:
-````
-pip install -r requirements.txt
-````
-### 5. Execute a Aplicação
-Para iniciar o dashboard, execute o script do frontend:
-````
-python frontend.py
-````
-A janela do Sentinela Verde deverá abrir, carregando os dados do arquivo ````meus_dados_arduino_historico.csv```` e exibindo a primeira análise.
+#### 3. Configuração
+Antes de executar, você precisa configurar o arquivo ````config.yaml````.
 
-## 🔧 Configuração
-Você pode customizar o comportamento do sistema editando o arquivo config.yaml. Algumas das principais configurações que você pode ajustar são:
+a. Obtenha uma chave de API do WAQI:
 
-````air_quality_limits````: Altere os limites de ppm para cada gás para ajustar o gatilho da classificação "Ruim".
+A aplicação utiliza a API do WAQI para buscar dados de PM2.5 e PM10.
 
-````sensor_ranges````: Modifique os valores mínimos e máximos para corresponder às especificações do seu sensor.
+Obtenha uma chave de API gratuita em: https://aqicn.org/data-platform/token/
 
-````prediction_horizon_hours````: Aumente ou diminua o número de horas que o sistema deve prever.
+b. Edite o ````config.yaml````:
+````
+api:
+  # Cole a sua chave de API obtida no passo anterior
+  token: "SUA_CHAVE_API_AQUI" 
+  city: "rio claro"
+````
+Altere o campo ````token```` com a chave que você obteve.
+
+Você pode alterar a ````city```` e outros parâmetros, como o tópico MQTT (````topic````), se desejar.
+
+#### 4. Escolha uma Fonte de Dados
+Você pode executar a aplicação usando o hardware real (ESP32) ou o simulador de dados.
+
+- Opção A: Usando o Hardware (ESP32)
+Abra o código de ````arduino_sentinela_verde.ino```` na ````Arduino IDE.
+
+Insira as credenciais da sua rede Wi-Fi nos campos ````ssid```` e ````password````.
+
+Garanta que o ````mqtt_topic```` no código Arduino seja o mesmo definido em seu ````config.yaml````.
+
+Carregue o código para o seu ESP32. Ele começará a enviar dados para o broker MQTT.<br></br>
+
+
+- Opção B: Usando o Gerador de Dados (Sem Hardware)
+Este script é ideal para uso caseiro ou para desenvolvimento, caso você não possua o hardware Arduino/ESP32.
+
+Abra um novo terminal na pasta do projeto (com o ambiente virtual ativado).
+
+Execute o ````gerador_de_dados.py````:
+````
+python gerador_de_dados.py
+````
+O terminal começará a exibir os dados simulados que estão sendo enviados.
+
+Nota Importante: Você pode facilmente alterar o range de geração dos dados para simular diferentes cenários. Para isso, basta editar os valores dentro das funções ````random.uniform()```` no arquivo ````gerador_de_dados.py````.
+
+#### 5. Execute a Aplicação Principal
+Com a fonte de dados (real ou simulada) em execução, abra outro terminal (com o ambiente virtual ativado) e inicie a aplicação Flet.
+````
+python main_app.py
+````
+A interface gráfica do Sentinela Verde será iniciada, pronta para receber, processar e exibir os dados.
 
