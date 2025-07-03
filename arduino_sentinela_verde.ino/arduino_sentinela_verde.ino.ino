@@ -1,23 +1,3 @@
-/**
- * @file arduino_sentinela_verde.ino
- * @author Nicolas
- * @brief Código para ESP32 do projeto Sentinela Verde.
- * @version 3.0 (Robusta)
- * * @details
- * Este código realiza as seguintes tarefas:
- * 1. Conecta-se a uma rede Wi-Fi.
- * 2. Conecta-se a um broker MQTT público.
- * 3. Lê os dados dos sensores DHT11 (temperatura e umidade) e MQ-135 (qualidade do ar).
- * 4. Junta todos os dados em UMA ÚNICA MENSAGEM de texto, separada por vírgulas.
- * Formato: "temperatura,umidade,concentracao_ppm"
- * 5. Publica esta mensagem única em um TÓPICO MQTT único a cada minuto.
- * Este método é mais confiável do que enviar múltiplas mensagens separadas.
- * * Bibliotecas necessárias (Instalar pela Library Manager da Arduino IDE):
- * 1. "DHT sensor library" by Adafruit
- * 2. "Adafruit Unified Sensor" by Adafruit
- * 3. "PubSubClient" by Nick O'Leary
- */
-
 // ==============================================================================
 // 1. INCLUSÃO DE BIBLIOTECAS
 // ==============================================================================
